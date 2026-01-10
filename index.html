@@ -4,7 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Apocalypse Now - Game</title>
+    <title>Apocalypse Now</title>
+    <link href="https://fonts.googleapis.com/css2?family=Creepster&family=Russo+One&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -13,159 +14,265 @@
         }
 
         body {
-            background: #0a0a0a;
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #0a0a0a 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Russo One', sans-serif;
             overflow: hidden;
-            font-family: 'Arial', sans-serif;
-            width: 100vw;
-            height: 100vh;
+            position: relative;
+        }
+
+        /* Animated background particles */
+        .particles {
             position: fixed;
-            touch-action: none;
-        }
-
-        #game-canvas {
-            display: block;
-            background: #1a1a1a;
-            cursor: crosshair;
-        }
-
-        #ui-overlay {
-            position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
+            overflow: hidden;
+            z-index: 0;
             pointer-events: none;
         }
 
-        .info-panel {
+        .particle {
             position: absolute;
-            top: 2vh;
-            left: 2vw;
-            background: rgba(0, 0, 0, 0.7);
-            backdrop-filter: blur(10px);
-            padding: 2vh 3vw;
-            border-radius: 12px;
-            color: white;
-            border: 2px solid rgba(255, 217, 61, 0.3);
-            pointer-events: auto;
-            max-width: 40vw;
-        }
-
-        .info-panel h3 {
-            color: #ffd93d;
-            margin-bottom: 1vh;
-            font-size: clamp(12px, 3vw, 18px);
-        }
-
-        .info-panel p {
-            font-size: clamp(10px, 2.5vw, 14px);
-            margin: 0.5vh 0;
-            color: #ccc;
-        }
-
-        #click-indicator {
-            position: absolute;
-            width: 30px;
-            height: 30px;
-            border: 3px solid #ffd93d;
+            width: 4px;
+            height: 4px;
+            background: rgba(255, 100, 100, 0.3);
             border-radius: 50%;
-            pointer-events: none;
-            opacity: 0;
-            transform: translate(-50%, -50%);
-            animation: clickPulse 0.6s ease-out;
+            animation: float 15s infinite;
         }
 
-        @keyframes clickPulse {
-            0% {
-                opacity: 1;
-                transform: translate(-50%, -50%) scale(0.5);
-            }
-
-            100% {
+        @keyframes float {
+            0%, 100% {
+                transform: translateY(100vh) rotate(0deg);
                 opacity: 0;
-                transform: translate(-50%, -50%) scale(2);
+            }
+            10% {
+                opacity: 1;
+            }
+            90% {
+                opacity: 1;
+            }
+            100% {
+                transform: translateY(-100vh) rotate(720deg);
+                opacity: 0;
             }
         }
 
-        .show-click {
-            opacity: 1 !important;
+        /* Main container */
+        .menu-container {
+            position: relative;
+            z-index: 10;
+            text-align: center;
+            padding: 2rem;
         }
 
-        /* Action Button */
-        #action-button {
-            position: absolute;
-            bottom: 4vh;
-            right: 4vw;
-            background: rgba(0, 0, 0, 0.85);
-            backdrop-filter: blur(10px);
-            padding: 2vh 4vw;
-            border-radius: 16px;
-            color: white;
-            border: 2px solid rgba(255, 217, 61, 0.5);
-            font-size: clamp(14px, 3.5vw, 18px);
-            font-weight: bold;
-            cursor: pointer;
-            pointer-events: auto;
-            display: none;
-            align-items: center;
-            gap: 2vw;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-            min-width: 30vw;
-            justify-content: center;
+        /* Title */
+        .game-title {
+            font-family: 'Creepster', cursive;
+            font-size: clamp(3rem, 12vw, 8rem);
+            color: #ff4444;
+            text-shadow: 
+                0 0 10px rgba(255, 68, 68, 0.8),
+                0 0 20px rgba(255, 68, 68, 0.6),
+                0 0 40px rgba(255, 68, 68, 0.4),
+                4px 4px 0 #1a1a1a;
+            margin-bottom: 0.5rem;
+            letter-spacing: 4px;
+            animation: flicker 3s infinite alternate;
         }
 
-        #action-button:hover,
-        #action-button:active {
-            background: rgba(255, 217, 61, 0.2);
-            border-color: #ffd93d;
-            transform: scale(1.05);
+        .subtitle {
+            font-size: clamp(0.8rem, 3vw, 1.2rem);
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 8px;
+            margin-bottom: 3rem;
         }
 
-        #action-button.visible {
+        @keyframes flicker {
+            0%, 100% { opacity: 1; }
+            92% { opacity: 1; }
+            93% { opacity: 0.8; }
+            94% { opacity: 1; }
+            96% { opacity: 0.9; }
+            97% { opacity: 1; }
+        }
+
+        /* Menu buttons */
+        .menu-buttons {
             display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            align-items: center;
         }
 
-        #action-button .icon {
-            font-size: clamp(20px, 5vw, 28px);
+        .menu-btn {
+            position: relative;
+            padding: 1.2rem 4rem;
+            font-family: 'Russo One', sans-serif;
+            font-size: clamp(1rem, 3vw, 1.4rem);
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            color: #fff;
+            background: linear-gradient(180deg, rgba(255, 68, 68, 0.2) 0%, rgba(139, 0, 0, 0.3) 100%);
+            border: 2px solid rgba(255, 68, 68, 0.5);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            min-width: 280px;
+            overflow: hidden;
         }
 
-        /* Mobile-specific adjustments */
-        @media (max-width: 768px) {
-            .info-panel {
-                top: 1vh;
-                left: 1vw;
-                padding: 1.5vh 2vw;
-                border-radius: 8px;
-            }
+        .menu-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+            transition: left 0.5s ease;
+        }
 
-            #action-button {
-                bottom: 3vh;
-                right: 3vw;
-                min-width: auto;
-                padding: 2vh 5vw;
-            }
+        .menu-btn:hover {
+            background: linear-gradient(180deg, rgba(255, 68, 68, 0.4) 0%, rgba(139, 0, 0, 0.5) 100%);
+            border-color: #ff4444;
+            transform: scale(1.05);
+            box-shadow: 
+                0 0 20px rgba(255, 68, 68, 0.4),
+                inset 0 0 20px rgba(255, 68, 68, 0.1);
+        }
+
+        .menu-btn:hover::before {
+            left: 100%;
+        }
+
+        .menu-btn:active {
+            transform: scale(0.98);
+        }
+
+        .menu-btn.primary {
+            background: linear-gradient(180deg, rgba(255, 68, 68, 0.4) 0%, rgba(139, 0, 0, 0.5) 100%);
+            border-color: #ff4444;
+        }
+
+        .menu-btn.primary:hover {
+            background: linear-gradient(180deg, rgba(255, 68, 68, 0.6) 0%, rgba(180, 0, 0, 0.7) 100%);
+        }
+
+        /* Version info */
+        .version {
+            position: fixed;
+            bottom: 1rem;
+            right: 1rem;
+            color: #444;
+            font-size: 0.8rem;
+        }
+
+        /* Zombie decoration */
+        .zombie-silhouette {
+            position: fixed;
+            bottom: -10px;
+            opacity: 0.1;
+            font-size: 15rem;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        .zombie-left {
+            left: -2rem;
+        }
+
+        .zombie-right {
+            right: -2rem;
+            transform: scaleX(-1);
         }
     </style>
 </head>
 
 <body>
-    <canvas id="game-canvas"></canvas>
-    <div id="ui-overlay">
-        <div class="info-panel">
-            <h3>🎮 Controls</h3>
-            <p><strong>Click:</strong> Move Character</p>
-            <p><strong>Position:</strong> <span id="pos-display">0, 0</span></p>
-            <p><strong>Status:</strong> <span id="status-display">Idle</span></p>
+    <!-- Animated particles background -->
+    <div class="particles" id="particles"></div>
+
+    <!-- Zombie silhouettes -->
+    <div class="zombie-silhouette zombie-left">🧟</div>
+    <div class="zombie-silhouette zombie-right">🧟</div>
+
+    <!-- Main menu -->
+    <div class="menu-container">
+        <h1 class="game-title">Apocalypse Now</h1>
+        <p class="subtitle">Survive the Bunker</p>
+
+        <div class="menu-buttons">
+            <button class="menu-btn primary" onclick="startGame()">
+                ▶ Start Game
+            </button>
+            <button class="menu-btn" onclick="showControls()">
+                🎮 Controls
+            </button>
+            <button class="menu-btn" onclick="showCredits()">
+                📜 Credits
+            </button>
         </div>
-        <div id="click-indicator"></div>
-        <button id="action-button">
-            <span class="icon">🛏️</span>
-            <span>Go to Sleep</span>
-        </button>
     </div>
 
-    <script src="game.js"></script>
+    <div class="version">v1.0.0</div>
+
+    <script>
+        // Create floating particles
+        function createParticles() {
+            const container = document.getElementById('particles');
+            const particleCount = 30;
+
+            for (let i = 0; i < particleCount; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                particle.style.left = Math.random() * 100 + '%';
+                particle.style.animationDelay = Math.random() * 15 + 's';
+                particle.style.animationDuration = (10 + Math.random() * 10) + 's';
+                
+                // Random colors (red, orange, yellow for apocalypse theme)
+                const colors = [
+                    'rgba(255, 100, 100, 0.3)',
+                    'rgba(255, 150, 50, 0.3)',
+                    'rgba(255, 200, 50, 0.2)'
+                ];
+                particle.style.background = colors[Math.floor(Math.random() * colors.length)];
+                particle.style.width = (2 + Math.random() * 4) + 'px';
+                particle.style.height = particle.style.width;
+
+                container.appendChild(particle);
+            }
+        }
+
+        // Start game - go to cutscene
+        function startGame() {
+            document.body.style.opacity = '0';
+            document.body.style.transition = 'opacity 0.5s ease';
+            
+            setTimeout(() => {
+                window.location.href = 'opening-cutscene.html';
+            }, 500);
+        }
+
+        // Show controls modal
+        function showControls() {
+            alert('🎮 CONTROLS\n\n• Click anywhere to move\n• Click on objects to interact\n• Press D to toggle debug mode\n• Click enemies (when close) to attack');
+        }
+
+        // Show credits
+        function showCredits() {
+            alert('📜 CREDITS\n\nApocalypse Now\nA Survival Horror Game\n\nDeveloped with ❤️');
+        }
+
+        // Initialize
+        createParticles();
+    </script>
 </body>
 
 </html>
