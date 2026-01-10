@@ -62,7 +62,12 @@ const gameState = {
     playerHealth: 100,
     playerMaxHealth: 100,
     inCombat: false,
-    enemies: []
+    enemies: [],
+    // Generator Puzzle
+    generatorPuzzleActive: false,
+    showingPanel: false, // false = generator room view, true = panel view
+    circuitBreakers: [false, false, false, false, false], // false = down, true = up
+    correctCombination: [true, false, true, true, false] // Switches 1,3,4 UP to win
 };
 
 // =============================================================
@@ -213,6 +218,10 @@ class Enemy {
         };
 
         this.direction = 'right'; // Track facing direction
+
+        // Cache the last valid video frame to prevent fallback during looping
+        this.cachedFrameCanvas = null;
+        this.cachedFrameDirection = null;
 
         this.loadAnimations();
     }
@@ -416,9 +425,9 @@ class Enemy {
 
             // Draw to temp canvas - apply cropping if it's a video to remove black bars
             if (isVideo) {
-                // Crop 25% from left and right to remove pillars
-                const cropX = width * 0.25;
-                const cropWidth = width * 0.5;
+                // Crop 30% from left and right to remove pillars/black bars
+                const cropX = width * 0.30;
+                const cropWidth = width * 0.40;
                 // Draw cropped portion to full temp canvas size (stretching it back? No, resize canvas or draw centered)
                 // Better: Resize temp canvas to cropped size
                 tempCanvas.width = cropWidth;
@@ -446,8 +455,20 @@ class Enemy {
 
             tempCtx.putImageData(imageData, 0, 0);
             ctx.drawImage(tempCanvas, -this.size / 2, -this.size / 2, this.size, this.size);
+
+            // Cache this frame for use during video loop transitions
+            if (isVideo) {
+                this.cachedFrameCanvas = tempCanvas;
+                this.cachedFrameDirection = this.direction;
+            }
+        } else if (this.cachedFrameCanvas && this.isMoving) {
+            // Use cached frame during video loop transition (prevents fallback to emoji)
+            ctx.drawImage(this.cachedFrameCanvas, -this.size / 2, -this.size / 2, this.size, this.size);
+        } else if (source && !isVideo && source.complete && source.width > 0) {
+            // Fallback to idle image if available
+            ctx.drawImage(source, -this.size / 2, -this.size / 2, this.size, this.size);
         } else {
-            // Fallback emoji
+            // Final fallback emoji (only if no cache available)
             ctx.font = `${this.size}px Arial`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -985,6 +1006,21 @@ mapVideo.addEventListener('ended', () => {
 
 mapVideo.load();
 
+// Generator Room Images
+const generatorRoomImg = new Image();
+generatorRoomImg.src = 'Maps/Generator_Room_Zoomed/Gemini_Generated_Image_o2k7ho2k7ho2k7ho.png';
+const generatorPanelImg = new Image();
+generatorPanelImg.src = 'Maps/Generator_Room_Zoomed/Gemini_Generated_Image_yu3eniyu3eniyu3e.png';
+let generatorImgsLoaded = false;
+
+Promise.all([
+    new Promise(resolve => generatorRoomImg.onload = resolve),
+    new Promise(resolve => generatorPanelImg.onload = resolve)
+]).then(() => {
+    generatorImgsLoaded = true;
+    console.log('⚡ Generator images loaded!');
+});
+
 // Game State
 const walkableManager = new WalkableAreaManager(WALKABLE_AREAS);
 // Initialize character at center of allowed range (starting at bunker level)
@@ -1333,43 +1369,10 @@ actionButton.addEventListener('click', () => {
         // Handle Generator
         else if (currentZone.type === 'generator') {
             if (!gameState.generatorFixed) {
-                gameState.generatorFixed = true;
-                showMessage(currentZone.fixedMessage);
-
-                // Fade out canvas for smooth transition
-                canvas.style.transition = 'opacity 0.5s';
-                canvas.style.opacity = '0.3';
-
-                setTimeout(() => {
-                    // Play Level 2 transition cutscene (lights up second floor)
-                    console.log('⚡ Generator fixed! Playing transition cutscene...');
-                    mapVideo.src = 'Cutscenes/download (43).mp4';
-                    mapVideo.loop = false;
-                    mapVideo.currentTime = 0;
-                    mapVideo.play();
-
-                    // Fade back in
-                    canvas.style.opacity = '1';
-
-                    // Pause at 3.4 seconds to use as background
-                    mapVideo.ontimeupdate = () => {
-                        if (mapVideo.currentTime >= 4) {
-                            mapVideo.pause();
-                            mapVideo.ontimeupdate = null; // Remove listener
-                            console.log('✨ Level 2 revealed!');
-                            gameState.currentLevel = 2;
-
-                            // Spawn zombie on second floor
-                            if (gameState.enemies.length === 0) {
-                                const zombieX = mapToScreenX(370); // Center of second floor
-                                const zombieY = canvas.height * 0.66; // Second floor Y position
-                                const zombie = new Enemy(zombieX, zombieY, 'zombie');
-                                gameState.enemies.push(zombie);
-                                console.log('🧟 Zombie spawned on second floor!');
-                            }
-                        }
-                    };
-                }, 500); // Wait for fade out
+                // Show the generator puzzle instead of immediately fixing
+                if (!gameState.generatorPuzzleActive) {
+                    showGeneratorPuzzle();
+                }
             } else {
                 showMessage('The generator is humming smoothly.');
             }
@@ -1412,6 +1415,649 @@ function showMessage(text) {
     setTimeout(() => {
         messageBox.style.opacity = '0';
     }, 3000);
+}
+
+// =====================================================
+// GENERATOR PUZZLE FUNCTIONS
+// =====================================================
+
+// Switch linking pattern: clicking switch N also toggles linked switch
+const SWITCH_LINKS = {
+    0: 2,  // Switch 1 -> Switch 3
+    1: 4,  // Switch 2 -> Switch 5
+    2: 0,  // Switch 3 -> Switch 1
+    3: 1,  // Switch 4 -> Switch 2
+    4: 3   // Switch 5 -> Switch 4
+};
+
+function showGeneratorPuzzle() {
+    gameState.generatorPuzzleActive = true;
+    // Reset all switches to down
+    gameState.circuitBreakers = [false, false, false, false, false];
+    console.log('⚡ Generator puzzle activated!');
+
+    // Create puzzle overlay
+    createPuzzleUI();
+}
+
+function createPuzzleUI() {
+    // Remove existing puzzle UI if any
+    const existing = document.getElementById('generator-puzzle');
+    if (existing) existing.remove();
+
+    const puzzleDiv = document.createElement('div');
+    puzzleDiv.id = 'generator-puzzle';
+    // Enforce 9:16 aspect ratio centered on screen
+    puzzleDiv.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 100vw;
+        height: 100vh;
+        max-width: 56.25vh; /* 9:16 Aspect Ratio (1 / (16/9) = 0.5625) */
+        z-index: 2000;
+        background: #000;
+        overflow: hidden;
+        box-shadow: 0 0 50px rgba(0,0,0,0.8);
+    `;
+
+    // Use background image + video overlays for animation
+    puzzleDiv.innerHTML = `
+        <div id="puzzle-bg" style="
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: url('Maps/Generator_Room_Zoomed/Gemini_Generated_Image_o2k7ho2k7ho2k7ho.png') center/cover no-repeat;
+            cursor: pointer;
+        "></div>
+        
+        <!-- Container for video lever overlays -->
+        <div id="levers-container" style="
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none;
+        "></div>
+        
+        <!-- Top instruction overlay -->
+        <div id="puzzle-instruction" style="
+            position: absolute;
+            top: 5%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.85);
+            padding: 12px 24px;
+            border-radius: 8px;
+            border: 2px solid rgba(255, 200, 0, 0.4);
+            backdrop-filter: blur(10px);
+            z-index: 10;
+            pointer-events: none;
+            width: 80%;
+        ">
+            <div style="
+                color: #ffd93d;
+                font-size: clamp(14px, 3.5vw, 18px);
+                font-weight: bold;
+                text-align: center;
+                margin-bottom: 4px;
+            ">⚡ Generator Room</div>
+            <div id="instruction-text" style="
+                color: #aaa;
+                font-size: clamp(11px, 2.5vw, 13px);
+                text-align: center;
+            ">Tap the circuit panel to interact</div>
+        </div>
+        
+        <!-- Feedback message -->
+        <div id="puzzle-feedback" style="
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #4f4;
+            font-size: clamp(20px, 5vw, 32px);
+            font-weight: bold;
+            text-align: center;
+            text-shadow: 0 0 20px rgba(0,255,0,0.5), 0 2px 4px rgba(0,0,0,1);
+            z-index: 15;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        "></div>
+        
+        <!-- Back button -->
+        <button id="close-puzzle-btn" style="
+            position: absolute;
+            bottom: 5%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            border: 2px solid #555;
+            color: #aaa;
+            padding: clamp(10px, 3vw, 14px) clamp(20px, 6vw, 35px);
+            border-radius: 8px;
+            font-size: clamp(13px, 3vw, 16px);
+            cursor: pointer;
+            transition: all 0.2s;
+            backdrop-filter: blur(5px);
+            text-transform: uppercase;
+            font-weight: bold;
+            z-index: 10;
+        ">← Back</button>
+    `;
+
+    document.body.appendChild(puzzleDiv);
+
+    // Background click handler
+    const puzzleBg = document.getElementById('puzzle-bg');
+    puzzleBg.addEventListener('click', () => {
+        if (!gameState.showingPanel) {
+            showCircuitPanel();
+        }
+    });
+
+    // Create 5 video lever overlays - MUCH BIGGER and CLOSER
+    const leversContainer = document.getElementById('levers-container');
+    gameState.leverVideos = [];
+
+    // Lever positions - evenly spaced from 33% to 74%
+    const leverPositions = [
+        { left: '33%', top: '50%' },      // Lever 1
+        { left: '43.25%', top: '50%' },   // Lever 2  
+        { left: '53.5%', top: '50%' },    // Lever 3
+        { left: '63.75%', top: '50%' },   // Lever 4
+        { left: '74%', top: '50%' }       // Lever 5
+    ];
+
+    leverPositions.forEach((pos, i) => {
+        // Create video element (hidden, used as source)
+        const video = document.createElement('video');
+        video.src = 'Maps/Generator_Room_Zoomed/download (55).mp4';
+        video.muted = true;
+        video.playsInline = true;
+        video.preload = 'auto';
+        video.loop = false;
+        video.style.display = 'none';
+        video.currentTime = 0;
+        document.body.appendChild(video);
+
+        // Create canvas to render video with chroma key (VISUAL - 85% width)
+        const canvas = document.createElement('canvas');
+        canvas.className = 'lever-canvas';
+        canvas.dataset.index = i;
+        canvas.style.cssText = `
+            position: absolute;
+            left: ${pos.left};
+            top: ${pos.top};
+            transform: translate(-50%, -50%);
+            width: 85%;
+            height: auto;
+            filter: drop-shadow(2px 2px 6px rgba(0,0,0,0.7));
+            pointer-events: none;
+            z-index: 1;
+        `;
+
+        // Create invisible click zone overlay (CLICKABLE - 14% width)
+        const clickZone = document.createElement('div');
+        clickZone.className = 'lever-clickzone';
+        clickZone.dataset.index = i;
+        clickZone.style.cssText = `
+            position: absolute;
+            left: ${pos.left};
+            top: ${pos.top};
+            transform: translate(-50%, -50%);
+            width: 14%;
+            aspect-ratio: 1 / 2;
+            cursor: pointer;
+            z-index: 2;
+        `;
+
+        // Store references
+        if (!gameState.leverVideos) gameState.leverVideos = [];
+        if (!gameState.leverCanvases) gameState.leverCanvases = [];
+        gameState.leverVideos.push(video);
+        gameState.leverCanvases.push(canvas);
+
+        leversContainer.appendChild(canvas);
+        leversContainer.appendChild(clickZone);
+
+        // Start chroma key rendering when video loads
+        video.addEventListener('loadeddata', () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            applyChromaKeyToCanvas(i);
+        });
+
+        // Click handler on the small click zone
+        clickZone.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleCircuitBreakerWithAnimation(i);
+        });
+
+        video.load();
+    });
+
+    // Close button handler
+    document.getElementById('close-puzzle-btn').addEventListener('click', closeGeneratorPuzzle);
+}
+
+
+// Apply chroma key to canvas - removes white background from video
+function applyChromaKeyToCanvas(index) {
+    const video = gameState.leverVideos[index];
+    const canvas = gameState.leverCanvases[index];
+    if (!video || !canvas || !video.videoWidth) return;
+
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    // Draw current video frame
+    ctx.drawImage(video, 0, 0);
+
+    // Get pixel data
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+
+    // Remove white and very dark pixels
+    for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+
+        // Remove white/bright pixels (background)
+        if (r > 200 && g > 200 && b > 200) {
+            data[i + 3] = 0; // Transparent
+        }
+        // Remove very dark pixels (black borders)
+        else if (r < 30 && g < 30 && b < 30) {
+            data[i + 3] = 0; // Transparent
+        }
+    }
+
+    // Put processed pixels back
+    ctx.putImageData(imageData, 0, 0);
+}
+
+// Toggle circuit breaker with smooth animation
+function toggleCircuitBreakerWithAnimation(index) {
+    // Toggle clicked switch
+    gameState.circuitBreakers[index] = !gameState.circuitBreakers[index];
+
+    // Toggle linked switch
+    const linkedIndex = SWITCH_LINKS[index];
+    gameState.circuitBreakers[linkedIndex] = !gameState.circuitBreakers[linkedIndex];
+
+    console.log(`🔘 Toggled switch ${index + 1}, also toggled ${linkedIndex + 1}`);
+    console.log('Current state:', gameState.circuitBreakers);
+
+    // Animate both affected switches
+    animateLeverVideo(index);
+    animateLeverVideo(linkedIndex);
+
+    // Check if puzzle is solved
+    setTimeout(() => {
+        if (checkPuzzleSolution()) {
+            solvePuzzle();
+        }
+    }, 300);
+}
+
+// Animate a lever video to its new state with canvas rendering
+function animateLeverVideo(index) {
+    const video = gameState.leverVideos[index];
+    if (!video) return;
+
+    const isUp = gameState.circuitBreakers[index];
+    const startTime = isUp ? 0 : 1.0;     // Going up: start at 0, Going down: start at 1.0
+    const endTime = isUp ? 1.0 : 0;       // Going up: end at 1.0, Going down: end at 0
+
+    // Set initial position
+    video.currentTime = startTime;
+    applyChromaKeyToCanvas(index);
+
+    if (!isUp) {
+        // Going DOWN: manually step backwards from 1.0 to 0
+        let currentTime = 1.0;
+        const frameStep = 0.04; // Faster animation (was 0.02)
+        const animateBackward = () => {
+            currentTime -= frameStep;
+            if (currentTime <= 0) {
+                currentTime = 0;
+                video.currentTime = currentTime;
+                applyChromaKeyToCanvas(index);
+                return; // Done
+            }
+            video.currentTime = currentTime;
+            applyChromaKeyToCanvas(index);
+            requestAnimationFrame(animateBackward);
+        };
+        requestAnimationFrame(animateBackward);
+    } else {
+        // Going UP: play forward from 0 to 1.0
+        video.play().then(() => {
+            const renderLoop = () => {
+                applyChromaKeyToCanvas(index);
+                if (video.currentTime < endTime && !video.paused) {
+                    requestAnimationFrame(renderLoop);
+                } else {
+                    video.pause();
+                    video.currentTime = endTime;
+                    applyChromaKeyToCanvas(index);
+                }
+            };
+            renderLoop();
+
+            // Safety timeout to ensure we end at correct frame
+            setTimeout(() => {
+                video.pause();
+                video.currentTime = endTime;
+                applyChromaKeyToCanvas(index);
+            }, 600); // Increased timeout for 1 second animation
+        }).catch(err => {
+            // Fallback: instant switch
+            video.currentTime = endTime;
+            applyChromaKeyToCanvas(index);
+        });
+    }
+}
+
+
+// Helper to preload video frames for switches
+async function preloadSwitchFrames() {
+    const video = document.createElement('video');
+    video.src = 'Maps/Generator_Room_Zoomed/download (55).mp4';
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    video.style.display = 'none'; // Hide the video element
+    document.body.appendChild(video);
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    canvas.style.display = 'none';
+    document.body.appendChild(canvas);
+
+    return new Promise(resolve => {
+        video.addEventListener('loadeddata', async () => {
+            // Set canvas dimensions to match video for accurate frame capture
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+
+            // Capture 'down' state (0s)
+            video.currentTime = 0;
+            await new Promise(r => setTimeout(r, 50)); // Small delay to ensure frame is ready
+            gameState.switchDownImg = captureAndCleanFrame(video, canvas, ctx);
+
+            // Capture 'up' state (0.4s)
+            video.currentTime = 0.4;
+            await new Promise(r => setTimeout(r, 50)); // Small delay to ensure frame is ready
+            gameState.switchUpImg = captureAndCleanFrame(video, canvas, ctx);
+
+            gameState.switchFramesReady = true;
+            console.log('✅ Switch frames preloaded.');
+
+            // Clean up temporary elements
+            document.body.removeChild(video);
+            document.body.removeChild(canvas);
+            resolve();
+        });
+        video.load();
+    });
+}
+
+// Helper to capture a frame from video and apply chroma key
+function captureAndCleanFrame(video, canvas, ctx) {
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const frameData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = frameData.data;
+
+    for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+
+        // Remove white/very light pixels (background)
+        if (r > 200 && g > 200 && b > 200) {
+            data[i + 3] = 0; // Set alpha to 0 (transparent)
+        }
+        // Remove very dark/black pixels (borders/shadows that are part of background)
+        else if (r < 40 && g < 40 && b < 40) {
+            data[i + 3] = 0; // Set alpha to 0 (transparent)
+        }
+    }
+    ctx.putImageData(frameData, 0, 0);
+
+    const img = new Image();
+    img.src = canvas.toDataURL();
+    return img;
+}
+
+
+// Draw the puzzle canvas with current state
+function drawPuzzleCanvas() {
+    const pctx = gameState.puzzleCtx;
+    const canvas = gameState.puzzleCanvas;
+    if (!pctx || !canvas) return;
+
+    // Clear canvas
+    pctx.fillStyle = '#000';
+    pctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Choose image based on state
+    const img = gameState.showingPanel ? generatorPanelImg : generatorRoomImg;
+
+    // Draw image to fill canvas (cover mode)
+    const imgAspect = img.width / img.height;
+    const canvasAspect = canvas.width / canvas.height;
+    let drawWidth, drawHeight, offsetX, offsetY;
+
+    if (canvasAspect > imgAspect) {
+        // Canvas is wider - fit height
+        drawHeight = canvas.height;
+        drawWidth = drawHeight * imgAspect;
+        offsetX = (canvas.width - drawWidth) / 2;
+        offsetY = 0;
+    } else {
+        // Canvas is taller - fit width
+        drawWidth = canvas.width;
+        drawHeight = drawWidth / imgAspect;
+        offsetX = 0;
+        offsetY = (canvas.height - drawHeight) / 2;
+    }
+
+    pctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+
+    // If showing panel, draw switches on top
+    if (gameState.showingPanel) {
+        drawSwitchesOnCanvas(pctx, offsetX, offsetY, drawWidth, drawHeight);
+    }
+}
+
+// Draw lever switches on the canvas using extracted video frames
+function drawSwitchesOnCanvas(ctx, offsetX, offsetY, drawWidth, drawHeight) {
+    if (!gameState.switchFramesReady || !gameState.switchDownImg || !gameState.switchUpImg) {
+        // Fallback or loading state
+        ctx.fillStyle = 'white';
+        ctx.font = '20px Arial';
+        ctx.fillText('Loading switches...', offsetX + drawWidth / 2 - 80, offsetY + drawHeight / 2);
+        return;
+    }
+
+    // Make switches much bigger and taller
+    const switchWidth = drawWidth * 0.18; // Increased from 0.15
+    const switchHeight = switchWidth * 2.2; // Taller aspect ratio to match lever video
+
+    gameState.switchPositions.forEach((pos, i) => {
+        const x = offsetX + pos.xPercent * drawWidth;
+        const y = offsetY + pos.yPercent * drawHeight;
+        const isUp = gameState.circuitBreakers[i];
+
+        // Use the chroma-keyed images
+        const img = isUp ? gameState.switchUpImg : gameState.switchDownImg;
+
+        // Draw the image centered at position
+        // Since the image comes from video, we might need to adjust scale
+        ctx.drawImage(img, x - switchWidth / 2, y - switchHeight / 2, switchWidth, switchHeight);
+
+        // Store clickable area for interaction
+        pos.clickArea = {
+            x: x - switchWidth / 2,
+            y: y - switchHeight / 2,
+            width: switchWidth,
+            height: switchHeight
+        };
+
+        // Draw switch number (optional debug)
+        /*
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.font = '12px Arial';
+        ctx.fillText(i + 1, x, y + switchHeight/2 + 15);
+        */
+    });
+}
+
+function handleSwitchClick(clickX, clickY) {
+    if (!gameState.switchPositions) return;
+
+    console.log('🖱️ Click at', clickX, clickY);
+
+    for (let i = 0; i < gameState.switchPositions.length; i++) {
+        const area = gameState.switchPositions[i].clickArea;
+        if (area) {
+            console.log(`Switch ${i + 1} area:`, area);
+            if (clickX >= area.x && clickX <= area.x + area.width &&
+                clickY >= area.y && clickY <= area.y + area.height) {
+                console.log(`✅ Clicked switch ${i + 1}`);
+                toggleCircuitBreaker(i);
+                return;
+            }
+        }
+    }
+    console.log('❌ No switch clicked');
+}
+
+function showCircuitPanel() {
+    gameState.showingPanel = true;
+    console.log('🔌 Showing circuit panel...');
+
+    // Change background to panel image
+    const puzzleBg = document.getElementById('puzzle-bg');
+    if (puzzleBg) {
+        puzzleBg.style.backgroundImage = "url('Maps/Generator_Room_Zoomed/Gemini_Generated_Image_yu3eniyu3eniyu3e.png')";
+        puzzleBg.style.cursor = 'default';
+    }
+
+    // Update instruction text
+    const instruction = document.getElementById('puzzle-instruction');
+    if (instruction) {
+        instruction.querySelector('div:first-child').textContent = '⚡ Circuit Breaker Panel';
+        instruction.querySelector('div:last-child').textContent = 'Tap levers to flip them';
+    }
+
+    // Show video levers
+    const leversContainer = document.getElementById('levers-container');
+    if (leversContainer) {
+        leversContainer.style.display = 'block';
+    }
+
+    // Initialize lever states
+    updateSwitchVisuals();
+}
+
+function toggleCircuitBreaker(index) {
+    // Use the animated version
+    toggleCircuitBreakerWithAnimation(index);
+}
+
+function updateSwitchVisuals() {
+    // Update all video lever positions based on current state
+    if (!gameState.leverVideos) return;
+
+    gameState.leverVideos.forEach((video, i) => {
+        const isUp = gameState.circuitBreakers[i];
+        video.currentTime = isUp ? 0.4 : 0;
+    });
+}
+
+function checkPuzzleSolution() {
+    for (let i = 0; i < 5; i++) {
+        if (gameState.circuitBreakers[i] !== gameState.correctCombination[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function solvePuzzle() {
+    console.log('🎉 Puzzle solved!');
+
+    const feedback = document.getElementById('puzzle-feedback');
+    if (feedback) {
+        feedback.textContent = '✨ Power Restored! Generator Fixed!';
+        feedback.style.opacity = '1';
+    }
+
+    // Delay before transition
+    setTimeout(() => {
+        if (feedback) feedback.style.opacity = '0';
+        setTimeout(() => {
+            closeGeneratorPuzzle();
+            completeGeneratorFix();
+        }, 300);
+    }, 1500);
+}
+
+function closeGeneratorPuzzle() {
+    gameState.generatorPuzzleActive = false;
+    gameState.showingPanel = false;
+    const puzzleDiv = document.getElementById('generator-puzzle');
+    if (puzzleDiv) {
+        puzzleDiv.remove();
+    }
+}
+
+function completeGeneratorFix() {
+    gameState.generatorFixed = true;
+    showMessage('💡 Generator is working! Level 2 unlocked!');
+
+    // Fade out canvas for smooth transition
+    canvas.style.transition = 'opacity 0.5s';
+    canvas.style.opacity = '0.3';
+
+    setTimeout(() => {
+        // Play Level 2 transition cutscene (lights up second floor)
+        console.log('⚡ Generator fixed! Playing transition cutscene...');
+        mapVideo.src = 'Cutscenes/download (43).mp4';
+        mapVideo.loop = false;
+        mapVideo.currentTime = 0;
+        mapVideo.play();
+
+        // Fade back in
+        canvas.style.opacity = '1';
+
+        // Pause at 4 seconds to use as background
+        mapVideo.ontimeupdate = () => {
+            if (mapVideo.currentTime >= 4) {
+                mapVideo.pause();
+                mapVideo.ontimeupdate = null;
+                console.log('✨ Level 2 revealed!');
+                gameState.currentLevel = 2;
+
+                // Spawn zombie on second floor
+                if (gameState.enemies.length === 0) {
+                    const zombieX = mapToScreenX(370);
+                    const zombieY = canvas.height * 0.66;
+                    const zombie = new Enemy(zombieX, zombieY, 'zombie');
+                    gameState.enemies.push(zombie);
+                    console.log('🧟 Zombie spawned on second floor!');
+                }
+            }
+        };
+    }, 500);
 }
 
 // Start the game
