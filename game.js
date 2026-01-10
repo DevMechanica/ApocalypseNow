@@ -982,22 +982,33 @@ class WalkableAreaManager {
     }
 }
 
-// Map Background - Static Image
-const mapImage = new Image();
-mapImage.src = 'Maps/processed-image.png';
+// Map Background - Video with locked room state
+const mapVideo = document.createElement('video');
+mapVideo.src = 'Cutscenes/download (38).mp4';
+mapVideo.muted = true;
+mapVideo.playsInline = true;
+mapVideo.preload = 'auto';
 let mapLoaded = false;
 
-// Set image to loaded state
-mapImage.addEventListener('load', () => {
+// Set video to locked state (paused at 2 seconds = left room blacked out)
+mapVideo.addEventListener('loadeddata', () => {
+    mapVideo.currentTime = 2; // Pause at 2 seconds (locked state)
     mapLoaded = true;
-    console.log('🗺️ Map image loaded!');
+    console.log('🗺️ Map video loaded! Room is locked (darkened).');
 });
 
-mapImage.addEventListener('error', () => {
-    console.error('❌ Failed to load map image');
+// When video reaches 4 seconds (room revealed), pause there
+mapVideo.addEventListener('timeupdate', () => {
+    if (mapVideo.currentTime >= 4 && !mapVideo.paused) {
+        mapVideo.pause();
+        mapVideo.currentTime = 4;
+        console.log('🔓 Room fully revealed!');
+    }
 });
 
 mapVideo.load();
+
+
 
 // Generator Room Images
 const generatorRoomImg = new Image();
@@ -1250,18 +1261,21 @@ function gameLoop(currentTime) {
 }
 
 function drawMap() {
-    if (!mapImage.complete) return;
-
-    // Use actual image aspect ratio
-    const mapAspect = mapImage.width / mapImage.height;
+    // Use actual video aspect ratio, fallback to 9:16 if not available
+    let mapAspect = 9 / 16;
+    if (mapVideo.readyState >= mapVideo.HAVE_METADATA && mapVideo.videoWidth && mapVideo.videoHeight) {
+        mapAspect = mapVideo.videoWidth / mapVideo.videoHeight;
+    }
 
     // Always fit to full height and center horizontally
     const drawHeight = canvas.height;
     const drawWidth = drawHeight * mapAspect;
     const offsetX = (canvas.width - drawWidth) / 2;
 
-    // Draw the image as map background
-    ctx.drawImage(mapImage, offsetX, 0, drawWidth, drawHeight);
+    // Draw the video frame as map background
+    if (mapVideo.readyState >= mapVideo.HAVE_CURRENT_DATA) {
+        ctx.drawImage(mapVideo, offsetX, 0, drawWidth, drawHeight);
+    }
 }
 
 function drawGrid() {
@@ -1344,8 +1358,10 @@ actionButton.addEventListener('click', () => {
             if (gameState.keyFound) {
                 if (!gameState.generatorRoomUnlocked) {
                     showMessage(currentZone.unlockMessage);
+                    // Play video to reveal room (2s to 4s)
+                    mapVideo.play();
                     gameState.generatorRoomUnlocked = true;
-                    console.log('🔓 Door unlocked!');
+                    console.log('🔓 Door unlocked! Playing reveal animation...');
                 } else {
                     showMessage('The door is already unlocked.');
                 }
@@ -2010,41 +2026,17 @@ function closeGeneratorPuzzle() {
 function completeGeneratorFix() {
     gameState.generatorFixed = true;
     showMessage('💡 Generator is working! Level 2 unlocked!');
+    console.log('⚡ Generator fixed! Level 2 unlocked!');
+    gameState.currentLevel = 2;
 
-    // Fade out canvas for smooth transition
-    canvas.style.transition = 'opacity 0.5s';
-    canvas.style.opacity = '0.3';
-
-    setTimeout(() => {
-        // Play Level 2 transition cutscene (lights up second floor)
-        console.log('⚡ Generator fixed! Playing transition cutscene...');
-        mapVideo.src = 'Cutscenes/download (43).mp4';
-        mapVideo.loop = false;
-        mapVideo.currentTime = 0;
-        mapVideo.play();
-
-        // Fade back in
-        canvas.style.opacity = '1';
-
-        // Pause at 4 seconds to use as background
-        mapVideo.ontimeupdate = () => {
-            if (mapVideo.currentTime >= 4) {
-                mapVideo.pause();
-                mapVideo.ontimeupdate = null;
-                console.log('✨ Level 2 revealed!');
-                gameState.currentLevel = 2;
-
-                // Spawn zombie on second floor
-                if (gameState.enemies.length === 0) {
-                    const zombieX = mapToScreenX(370);
-                    const zombieY = canvas.height * 0.66;
-                    const zombie = new Enemy(zombieX, zombieY, 'zombie');
-                    gameState.enemies.push(zombie);
-                    console.log('🧟 Zombie spawned on second floor!');
-                }
-            }
-        };
-    }, 500);
+    // Spawn zombie on second floor if not already spawned
+    if (gameState.enemies.length === 0) {
+        const zombieX = mapToScreenX(370);
+        const zombieY = canvas.height * 0.66;
+        const zombie = new Enemy(zombieX, zombieY, 'zombie');
+        gameState.enemies.push(zombie);
+        console.log('🧟 Zombie spawned on second floor!');
+    }
 }
 
 // Start the game
