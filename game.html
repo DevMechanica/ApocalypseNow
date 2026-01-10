@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Apocalypse Now - Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0a0a;
+            overflow: hidden;
+            font-family: 'Arial', sans-serif;
+            width: 100vw;
+            height: 100vh;
+            position: fixed;
+            touch-action: none;
+        }
+
+        #game-canvas {
+            display: block;
+            background: #1a1a1a;
+            cursor: crosshair;
+        }
+
+        #ui-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .info-panel {
+            position: absolute;
+            top: 2vh;
+            left: 2vw;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(10px);
+            padding: 2vh 3vw;
+            border-radius: 12px;
+            color: white;
+            border: 2px solid rgba(255, 217, 61, 0.3);
+            pointer-events: auto;
+            max-width: 40vw;
+        }
+
+        .info-panel h3 {
+            color: #ffd93d;
+            margin-bottom: 1vh;
+            font-size: clamp(12px, 3vw, 18px);
+        }
+
+        .info-panel p {
+            font-size: clamp(10px, 2.5vw, 14px);
+            margin: 0.5vh 0;
+            color: #ccc;
+        }
+
+        #click-indicator {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            border: 3px solid #ffd93d;
+            border-radius: 50%;
+            pointer-events: none;
+            opacity: 0;
+            transform: translate(-50%, -50%);
+            animation: clickPulse 0.6s ease-out;
+        }
+
+        @keyframes clickPulse {
+            0% {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(0.5);
+            }
+
+            100% {
+                opacity: 0;
+                transform: translate(-50%, -50%) scale(2);
+            }
+        }
+
+        .show-click {
+            opacity: 1 !important;
+        }
+
+        /* Action Button */
+        #action-button {
+            position: absolute;
+            bottom: 4vh;
+            right: 4vw;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(10px);
+            padding: 2vh 4vw;
+            border-radius: 16px;
+            color: white;
+            border: 2px solid rgba(255, 217, 61, 0.5);
+            font-size: clamp(14px, 3.5vw, 18px);
+            font-weight: bold;
+            cursor: pointer;
+            pointer-events: auto;
+            display: none;
+            align-items: center;
+            gap: 2vw;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            min-width: 30vw;
+            justify-content: center;
+        }
+
+        #action-button:hover,
+        #action-button:active {
+            background: rgba(255, 217, 61, 0.2);
+            border-color: #ffd93d;
+            transform: scale(1.05);
+        }
+
+        #action-button.visible {
+            display: flex;
+        }
+
+        #action-button .icon {
+            font-size: clamp(20px, 5vw, 28px);
+        }
+
+        /* Mobile-specific adjustments */
+        @media (max-width: 768px) {
+            .info-panel {
+                top: 1vh;
+                left: 1vw;
+                padding: 1.5vh 2vw;
+                border-radius: 8px;
+            }
+
+            #action-button {
+                bottom: 3vh;
+                right: 3vw;
+                min-width: auto;
+                padding: 2vh 5vw;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="game-canvas"></canvas>
+    <div id="ui-overlay">
+        <div class="info-panel">
+            <h3>🎮 Controls</h3>
+            <p><strong>Click:</strong> Move Character</p>
+            <p><strong>Position:</strong> <span id="pos-display">0, 0</span></p>
+            <p><strong>Status:</strong> <span id="status-display">Idle</span></p>
+        </div>
+        <div id="click-indicator"></div>
+        <button id="action-button">
+            <span class="icon">🛏️</span>
+            <span>Go to Sleep</span>
+        </button>
+    </div>
+
+    <script type="module" src="src/main.js"></script>
+</body>
+
+</html>

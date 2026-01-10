@@ -982,26 +982,19 @@ class WalkableAreaManager {
     }
 }
 
-// Map Background - Video with locked room state
-const mapVideo = document.createElement('video');
-mapVideo.src = 'Cutscenes/download (38).mp4';
-mapVideo.muted = true;
-mapVideo.playsInline = true;
-mapVideo.preload = 'auto';
+// Map Background - Static Image
+const mapImage = new Image();
+mapImage.src = 'Maps/processed-image.png';
 let mapLoaded = false;
 
-// Set video to locked state (paused at 2 seconds = left room blacked out)
-mapVideo.addEventListener('loadeddata', () => {
-    mapVideo.currentTime = 2; // Pause at 2 seconds (locked state)
+// Set image to loaded state
+mapImage.addEventListener('load', () => {
     mapLoaded = true;
-    console.log('🗺️ Map video loaded! Room is locked.');
+    console.log('🗺️ Map image loaded!');
 });
 
-// When video ends (room fully revealed), pause at end
-mapVideo.addEventListener('ended', () => {
-    mapVideo.pause();
-    gameState.generatorRoomUnlocked = true;
-    console.log('🔓 Generator room unlocked!');
+mapImage.addEventListener('error', () => {
+    console.error('❌ Failed to load map image');
 });
 
 mapVideo.load();
@@ -1257,24 +1250,18 @@ function gameLoop(currentTime) {
 }
 
 function drawMap() {
-    // Use actual video aspect ratio, fallback to 9:16 if not available
-    let mapAspect = 9 / 16;
-    if (mapVideo.readyState >= mapVideo.HAVE_METADATA && mapVideo.videoWidth && mapVideo.videoHeight) {
-        mapAspect = mapVideo.videoWidth / mapVideo.videoHeight;
-    }
+    if (!mapImage.complete) return;
 
-    let drawWidth, drawHeight, offsetX, offsetY;
+    // Use actual image aspect ratio
+    const mapAspect = mapImage.width / mapImage.height;
 
     // Always fit to full height and center horizontally
-    drawHeight = canvas.height;
-    drawWidth = drawHeight * mapAspect;
-    offsetX = (canvas.width - drawWidth) / 2; // Properly centered
-    offsetY = 0;
+    const drawHeight = canvas.height;
+    const drawWidth = drawHeight * mapAspect;
+    const offsetX = (canvas.width - drawWidth) / 2;
 
-    // Draw the video frame as map background
-    if (mapVideo.readyState >= mapVideo.HAVE_CURRENT_DATA) {
-        ctx.drawImage(mapVideo, offsetX, offsetY, drawWidth, drawHeight);
-    }
+    // Draw the image as map background
+    ctx.drawImage(mapImage, offsetX, 0, drawWidth, drawHeight);
 }
 
 function drawGrid() {
@@ -1357,8 +1344,8 @@ actionButton.addEventListener('click', () => {
             if (gameState.keyFound) {
                 if (!gameState.generatorRoomUnlocked) {
                     showMessage(currentZone.unlockMessage);
-                    // Play video to reveal room
-                    mapVideo.play();
+                    gameState.generatorRoomUnlocked = true;
+                    console.log('🔓 Door unlocked!');
                 } else {
                     showMessage('The door is already unlocked.');
                 }
