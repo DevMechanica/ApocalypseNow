@@ -67,7 +67,9 @@ const gameState = {
     generatorPuzzleActive: false,
     showingPanel: false, // false = generator room view, true = panel view
     circuitBreakers: [false, false, false, false, false], // false = down, true = up
-    correctCombination: [true, false, true, true, false] // Switches 1,3,4 UP to win
+    correctCombination: [true, true, true, true, true], // All 5 levers UP to win
+    // High-quality map frame (used after level 2 reveal)
+    mapFrameCanvas: null
 };
 
 // =============================================================
@@ -1263,7 +1265,13 @@ function gameLoop(currentTime) {
 function drawMap() {
     // Use actual video aspect ratio, fallback to 9:16 if not available
     let mapAspect = 9 / 16;
-    if (mapVideo.readyState >= mapVideo.HAVE_METADATA && mapVideo.videoWidth && mapVideo.videoHeight) {
+    let mapSource = mapVideo; // Default to video
+
+    // Use high-quality captured frame if available (level 2)
+    if (gameState.mapFrameCanvas) {
+        mapSource = gameState.mapFrameCanvas;
+        mapAspect = gameState.mapFrameCanvas.width / gameState.mapFrameCanvas.height;
+    } else if (mapVideo.readyState >= mapVideo.HAVE_METADATA && mapVideo.videoWidth && mapVideo.videoHeight) {
         mapAspect = mapVideo.videoWidth / mapVideo.videoHeight;
     }
 
@@ -1272,8 +1280,12 @@ function drawMap() {
     const drawWidth = drawHeight * mapAspect;
     const offsetX = (canvas.width - drawWidth) / 2;
 
-    // Draw the video frame as map background
-    if (mapVideo.readyState >= mapVideo.HAVE_CURRENT_DATA) {
+    // Draw the map background
+    if (gameState.mapFrameCanvas) {
+        // Use high-quality captured frame
+        ctx.drawImage(gameState.mapFrameCanvas, offsetX, 0, drawWidth, drawHeight);
+    } else if (mapVideo.readyState >= mapVideo.HAVE_CURRENT_DATA) {
+        // Use video frame
         ctx.drawImage(mapVideo, offsetX, 0, drawWidth, drawHeight);
     }
 }
@@ -1564,9 +1576,11 @@ function createPuzzleUI() {
         }
     });
 
-    // Create 5 video lever overlays - MUCH BIGGER and CLOSER
+    // Create 5 lever overlays with PRE-CACHED FRAMES for instant animation
     const leversContainer = document.getElementById('levers-container');
-    gameState.leverVideos = [];
+    gameState.leverCanvases = [];
+    gameState.leverFrameCache = []; // Each lever will have an array of pre-rendered frames
+    gameState.leverAnimations = []; // Track ongoing animations
 
     // Lever positions - evenly spaced from 33% to 74%
     const leverPositions = [
@@ -1577,131 +1591,150 @@ function createPuzzleUI() {
         { left: '74%', top: '50%' }       // Lever 5
     ];
 
-    leverPositions.forEach((pos, i) => {
-        // Create video element (hidden, used as source)
-        const video = document.createElement('video');
-        video.src = 'Maps/Generator_Room_Zoomed/download (55).mp4';
-        video.muted = true;
-        video.playsInline = true;
-        video.preload = 'auto';
-        video.loop = false;
-        video.style.display = 'none';
-        video.currentTime = 0;
-        document.body.appendChild(video);
+    // Pre-cache frames from a single video, then clone for each lever
+    const cacheVideo = document.createElement('video');
+    cacheVideo.src = 'Maps/Generator_Room_Zoomed/download (55).mp4';
+    cacheVideo.muted = true;
+    cacheVideo.playsInline = true;
+    cacheVideo.preload = 'auto';
+    cacheVideo.style.display = 'none';
+    document.body.appendChild(cacheVideo);
 
-        // Create canvas to render video with chroma key (VISUAL - 85% width)
-        const canvas = document.createElement('canvas');
-        canvas.className = 'lever-canvas';
-        canvas.dataset.index = i;
-        canvas.style.cssText = `
-            position: absolute;
-            left: ${pos.left};
-            top: ${pos.top};
-            transform: translate(-50%, -50%);
-            width: 85%;
-            height: auto;
-            filter: drop-shadow(2px 2px 6px rgba(0,0,0,0.7));
-            pointer-events: none;
-            z-index: 1;
-        `;
+    const NUM_FRAMES = 10; // Number of frames to cache for smooth animation
 
-        // Create invisible click zone overlay (CLICKABLE - 14% width)
-        const clickZone = document.createElement('div');
-        clickZone.className = 'lever-clickzone';
-        clickZone.dataset.index = i;
-        clickZone.style.cssText = `
-            position: absolute;
-            left: ${pos.left};
-            top: ${pos.top};
-            transform: translate(-50%, -50%);
-            width: 14%;
-            aspect-ratio: 1 / 2;
-            cursor: pointer;
-            z-index: 2;
-        `;
+    cacheVideo.addEventListener('loadeddata', async () => {
+        const duration = cacheVideo.duration;
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = cacheVideo.videoWidth;
+        tempCanvas.height = cacheVideo.videoHeight;
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
 
-        // Store references
-        if (!gameState.leverVideos) gameState.leverVideos = [];
-        if (!gameState.leverCanvases) gameState.leverCanvases = [];
-        gameState.leverVideos.push(video);
-        gameState.leverCanvases.push(canvas);
+        // Pre-render frames with chroma key
+        const cachedFrames = [];
+        for (let f = 0; f < NUM_FRAMES; f++) {
+            const time = (f / (NUM_FRAMES - 1)) * Math.min(duration, 1.0); // 0 to 1s
+            cacheVideo.currentTime = time;
+            await new Promise(resolve => {
+                const onSeeked = () => {
+                    cacheVideo.removeEventListener('seeked', onSeeked);
+                    resolve();
+                };
+                cacheVideo.addEventListener('seeked', onSeeked);
+            });
 
-        leversContainer.appendChild(canvas);
-        leversContainer.appendChild(clickZone);
+            // Draw frame and apply chroma key
+            tempCtx.drawImage(cacheVideo, 0, 0);
+            const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+            const data = imageData.data;
 
-        // Start chroma key rendering when video loads
-        video.addEventListener('loadeddata', () => {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            applyChromaKeyToCanvas(i);
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i], g = data[i + 1], b = data[i + 2];
+                if (r > 200 && g > 200 && b > 200) data[i + 3] = 0;
+                else if (r < 30 && g < 30 && b < 30) data[i + 3] = 0;
+            }
+
+            cachedFrames.push(imageData);
+        }
+
+        console.log('✅ Lever frames pre-cached:', cachedFrames.length);
+
+        // Now create lever canvases and assign cached frames
+        leverPositions.forEach((pos, i) => {
+            const canvas = document.createElement('canvas');
+            canvas.className = 'lever-canvas';
+            canvas.dataset.index = i;
+            canvas.width = tempCanvas.width;
+            canvas.height = tempCanvas.height;
+            canvas.style.cssText = `
+                position: absolute;
+                left: ${pos.left};
+                top: ${pos.top};
+                transform: translate(-50%, -50%);
+                width: 85%;
+                height: auto;
+                filter: drop-shadow(2px 2px 6px rgba(0,0,0,0.7));
+                pointer-events: none;
+                z-index: 1;
+            `;
+
+            // Create invisible click zone overlay
+            const leftValue = parseFloat(pos.left) + 4;
+            const topValue = parseFloat(pos.top) - 5;
+            const clickZone = document.createElement('div');
+            clickZone.className = 'lever-clickzone';
+            clickZone.dataset.index = i;
+            clickZone.style.cssText = `
+                position: absolute;
+                left: ${leftValue}%;
+                top: ${topValue}%;
+                transform: translate(-50%, -50%);
+                width: 14%;
+                aspect-ratio: 1 / 2;
+                cursor: pointer;
+                z-index: 2;
+            `;
+
+            // Store references - clone the cached frames for each lever
+            gameState.leverCanvases.push(canvas);
+            gameState.leverFrameCache.push(cachedFrames); // All levers share same frames
+            gameState.leverAnimations.push(null);
+
+            leversContainer.appendChild(canvas);
+            leversContainer.appendChild(clickZone);
+
+            // Draw initial frame (lever down = frame 0)
+            const ctx = canvas.getContext('2d');
+            ctx.putImageData(cachedFrames[0], 0, 0);
+
+            // Click handler
+            clickZone.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleCircuitBreakerWithAnimation(i);
+            });
         });
 
-        // Click handler on the small click zone
-        clickZone.addEventListener('click', (e) => {
-            e.stopPropagation();
-            toggleCircuitBreakerWithAnimation(i);
-        });
-
-        video.load();
+        // Clean up temp video
+        document.body.removeChild(cacheVideo);
     });
+
+    cacheVideo.load();
 
     // Close button handler
     document.getElementById('close-puzzle-btn').addEventListener('click', closeGeneratorPuzzle);
 }
 
 
-// Apply chroma key to canvas - removes white background from video
-function applyChromaKeyToCanvas(index) {
-    const video = gameState.leverVideos[index];
+// Draw a specific cached frame to a lever canvas
+function drawLeverFrame(index, frameIndex) {
     const canvas = gameState.leverCanvases[index];
-    if (!video || !canvas || !video.videoWidth) return;
+    const frames = gameState.leverFrameCache[index];
+    if (!canvas || !frames || !frames[frameIndex]) return;
 
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-
-    // Draw current video frame
-    ctx.drawImage(video, 0, 0);
-
-    // Get pixel data
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
-
-    // Remove white and very dark pixels
-    for (let i = 0; i < data.length; i += 4) {
-        const r = data[i];
-        const g = data[i + 1];
-        const b = data[i + 2];
-
-        // Remove white/bright pixels (background)
-        if (r > 200 && g > 200 && b > 200) {
-            data[i + 3] = 0; // Transparent
-        }
-        // Remove very dark pixels (black borders)
-        else if (r < 30 && g < 30 && b < 30) {
-            data[i + 3] = 0; // Transparent
-        }
-    }
-
-    // Put processed pixels back
-    ctx.putImageData(imageData, 0, 0);
+    const ctx = canvas.getContext('2d');
+    ctx.putImageData(frames[frameIndex], 0, 0);
 }
 
 // Toggle circuit breaker with smooth animation
+// Chain pattern: each lever (except first) also toggles the previous lever
+// Solution: Click levers 1, 3, and 5 to get all UP
 function toggleCircuitBreakerWithAnimation(index) {
-    // Toggle clicked switch
+    // Toggle the clicked switch
     gameState.circuitBreakers[index] = !gameState.circuitBreakers[index];
+    animateLeverInstant(index);
 
-    // Toggle linked switch
-    const linkedIndex = SWITCH_LINKS[index];
-    gameState.circuitBreakers[linkedIndex] = !gameState.circuitBreakers[linkedIndex];
+    // Chain effect: levers 2-5 also toggle the previous lever
+    if (index > 0) {
+        const linkedIndex = index - 1;
+        gameState.circuitBreakers[linkedIndex] = !gameState.circuitBreakers[linkedIndex];
+        animateLeverInstant(linkedIndex);
+        console.log(`🔘 Toggled switch ${index + 1}, also toggled switch ${linkedIndex + 1}`);
+    } else {
+        console.log(`🔘 Toggled switch ${index + 1}`);
+    }
 
-    console.log(`🔘 Toggled switch ${index + 1}, also toggled ${linkedIndex + 1}`);
-    console.log('Current state:', gameState.circuitBreakers);
+    console.log('Current state:', gameState.circuitBreakers.map((v, i) => `${i + 1}:${v ? 'UP' : 'down'}`).join(', '));
 
-    // Animate both affected switches
-    animateLeverVideo(index);
-    animateLeverVideo(linkedIndex);
-
-    // Check if puzzle is solved
+    // Check if puzzle is solved (all switches UP)
     setTimeout(() => {
         if (checkPuzzleSolution()) {
             solvePuzzle();
@@ -1709,63 +1742,50 @@ function toggleCircuitBreakerWithAnimation(index) {
     }, 300);
 }
 
-// Animate a lever video to its new state with canvas rendering
-function animateLeverVideo(index) {
-    const video = gameState.leverVideos[index];
-    if (!video) return;
+// Instant animation using pre-cached frames
+function animateLeverInstant(index) {
+    const frames = gameState.leverFrameCache[index];
+    const canvas = gameState.leverCanvases[index];
+    if (!frames || !canvas) return;
 
     const isUp = gameState.circuitBreakers[index];
-    const startTime = isUp ? 0 : 1.0;     // Going up: start at 0, Going down: start at 1.0
-    const endTime = isUp ? 1.0 : 0;       // Going up: end at 1.0, Going down: end at 0
+    const startFrame = isUp ? 0 : frames.length - 1;
+    const endFrame = isUp ? frames.length - 1 : 0;
+    const direction = isUp ? 1 : -1;
 
-    // Set initial position
-    video.currentTime = startTime;
-    applyChromaKeyToCanvas(index);
-
-    if (!isUp) {
-        // Going DOWN: manually step backwards from 1.0 to 0
-        let currentTime = 1.0;
-        const frameStep = 0.04; // Faster animation (was 0.02)
-        const animateBackward = () => {
-            currentTime -= frameStep;
-            if (currentTime <= 0) {
-                currentTime = 0;
-                video.currentTime = currentTime;
-                applyChromaKeyToCanvas(index);
-                return; // Done
-            }
-            video.currentTime = currentTime;
-            applyChromaKeyToCanvas(index);
-            requestAnimationFrame(animateBackward);
-        };
-        requestAnimationFrame(animateBackward);
-    } else {
-        // Going UP: play forward from 0 to 1.0
-        video.play().then(() => {
-            const renderLoop = () => {
-                applyChromaKeyToCanvas(index);
-                if (video.currentTime < endTime && !video.paused) {
-                    requestAnimationFrame(renderLoop);
-                } else {
-                    video.pause();
-                    video.currentTime = endTime;
-                    applyChromaKeyToCanvas(index);
-                }
-            };
-            renderLoop();
-
-            // Safety timeout to ensure we end at correct frame
-            setTimeout(() => {
-                video.pause();
-                video.currentTime = endTime;
-                applyChromaKeyToCanvas(index);
-            }, 600); // Increased timeout for 1 second animation
-        }).catch(err => {
-            // Fallback: instant switch
-            video.currentTime = endTime;
-            applyChromaKeyToCanvas(index);
-        });
+    // Cancel any existing animation on this lever
+    if (gameState.leverAnimations[index]) {
+        cancelAnimationFrame(gameState.leverAnimations[index]);
     }
+
+    const animationDuration = 250; // ms - fast and smooth
+    const startTime = performance.now();
+    const ctx = canvas.getContext('2d');
+
+    const animate = (timestamp) => {
+        const elapsed = timestamp - startTime;
+        const progress = Math.min(elapsed / animationDuration, 1);
+
+        // Ease-out for smooth deceleration
+        const eased = 1 - Math.pow(1 - progress, 2);
+
+        // Calculate frame index
+        const frameRange = Math.abs(endFrame - startFrame);
+        const currentFrame = Math.round(startFrame + direction * frameRange * eased);
+        const clampedFrame = Math.max(0, Math.min(frames.length - 1, currentFrame));
+
+        ctx.putImageData(frames[clampedFrame], 0, 0);
+
+        if (progress < 1) {
+            gameState.leverAnimations[index] = requestAnimationFrame(animate);
+        } else {
+            // Ensure we end on the correct frame
+            ctx.putImageData(frames[endFrame], 0, 0);
+            gameState.leverAnimations[index] = null;
+        }
+    };
+
+    gameState.leverAnimations[index] = requestAnimationFrame(animate);
 }
 
 
@@ -2025,18 +2045,209 @@ function closeGeneratorPuzzle() {
 
 function completeGeneratorFix() {
     gameState.generatorFixed = true;
-    showMessage('💡 Generator is working! Level 2 unlocked!');
-    console.log('⚡ Generator fixed! Level 2 unlocked!');
-    gameState.currentLevel = 2;
+    console.log('⚡ Generator fixed! Playing reveal cutscene...');
 
-    // Spawn zombie on second floor if not already spawned
-    if (gameState.enemies.length === 0) {
-        const zombieX = mapToScreenX(370);
-        const zombieY = canvas.height * 0.66;
-        const zombie = new Enemy(zombieX, zombieY, 'zombie');
-        gameState.enemies.push(zombie);
-        console.log('🧟 Zombie spawned on second floor!');
-    }
+    // Play reveal cutscene - the map video plays from 2s to 4s to reveal second floor
+    showRevealCutscene();
+}
+
+function showRevealCutscene() {
+    // Create cutscene overlay - fullscreen portrait 9:16
+    const cutsceneDiv = document.createElement('div');
+    cutsceneDiv.id = 'reveal-cutscene';
+    cutsceneDiv.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 100vw;
+        height: 100vh;
+        max-width: 56.25vh;
+        background: #000;
+        z-index: 3000;
+        overflow: hidden;
+    `;
+
+    // Create video element for the reveal - fullscreen 9:16
+    const video = document.createElement('video');
+    video.id = 'reveal-video';
+    video.src = 'Cutscenes/download (41).mp4';
+    video.style.cssText = `
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    `;
+    video.muted = false;
+    video.playsInline = true;
+
+    // Add text overlay
+    const textOverlay = document.createElement('div');
+    textOverlay.style.cssText = `
+        position: absolute;
+        bottom: 10%;
+        left: 50%;
+        transform: translateX(-50%);
+        color: #ffd93d;
+        font-size: clamp(16px, 4vw, 24px);
+        font-weight: bold;
+        text-align: center;
+        text-shadow: 0 0 20px rgba(0,0,0,0.8), 2px 2px 4px rgba(0,0,0,1);
+        opacity: 0;
+        transition: opacity 1s ease;
+        width: 90%;
+        z-index: 10;
+    `;
+    textOverlay.textContent = '💡 Power Restored! The second floor is revealed...';
+
+    cutsceneDiv.appendChild(video);
+    cutsceneDiv.appendChild(textOverlay);
+    document.body.appendChild(cutsceneDiv);
+
+    // Show text after a moment
+    setTimeout(() => {
+        textOverlay.style.opacity = '1';
+    }, 500);
+
+    // Track if cutscene already ended to prevent double-trigger
+    let cutsceneEnded = false;
+
+    // Monitor video time to pause at duration - 0.3 seconds
+    video.addEventListener('loadedmetadata', () => {
+        const pauseTime = Math.max(0, video.duration - 0.3);
+        console.log(`📹 Cutscene duration: ${video.duration}s, will pause at ${pauseTime}s`);
+
+        video.addEventListener('timeupdate', () => {
+            if (!cutsceneEnded && video.currentTime >= pauseTime) {
+                video.pause();
+                video.currentTime = pauseTime;
+                console.log('📹 Paused at final frame');
+
+                // Wait a moment on the final frame, then end cutscene
+                setTimeout(() => {
+                    if (!cutsceneEnded) {
+                        endRevealCutscene(cutsceneDiv, video);
+                        cutsceneEnded = true;
+                    }
+                }, 1500);
+            }
+        });
+    });
+
+    // Play the video
+    video.play().catch(err => {
+        console.log('Video autoplay blocked, skipping cutscene');
+        endRevealCutscene(cutsceneDiv, video);
+        cutsceneEnded = true;
+    });
+
+    // Fallback timeout in case video fails
+    setTimeout(() => {
+        if (!cutsceneEnded && document.getElementById('reveal-cutscene')) {
+            endRevealCutscene(cutsceneDiv, video);
+            cutsceneEnded = true;
+        }
+    }, 15000);
+
+    // Allow skipping with click/tap
+    cutsceneDiv.addEventListener('click', () => {
+        if (!cutsceneEnded) {
+            // Seek to the target frame (duration - 0.3) before capturing
+            if (video.duration) {
+                video.currentTime = Math.max(0, video.duration - 0.3);
+            }
+            endRevealCutscene(cutsceneDiv, video);
+            cutsceneEnded = true;
+        }
+    });
+}
+
+function endRevealCutscene(cutsceneDiv, cutsceneVideo) {
+    // Load the level 2 map image
+    const level2MapImage = new Image();
+    level2MapImage.src = 'Maps/Gemini_Generated_Image_1cg9221cg9221cg9.png';
+
+    level2MapImage.onload = () => {
+        // Create canvas to hold the image
+        const frameCanvas = document.createElement('canvas');
+        frameCanvas.width = level2MapImage.width;
+        frameCanvas.height = level2MapImage.height;
+        const frameCtx = frameCanvas.getContext('2d');
+
+        // Draw the level 2 image
+        frameCtx.drawImage(level2MapImage, 0, 0);
+
+        // Patch the watermark by copying bottom-right 5% from level 1 map video
+        // The mapVideo is the level 1 map, currently paused at a frame
+        if (mapVideo.readyState >= mapVideo.HAVE_CURRENT_DATA && mapVideo.videoWidth && mapVideo.videoHeight) {
+            // Calculate 5% of the corner area
+            const patchWidthPercent = 0.15;
+            const patchHeightPercent = 0.08;
+
+            // Source coordinates (from level 1 video)
+            const srcW = Math.round(mapVideo.videoWidth * patchWidthPercent);
+            const srcH = Math.round(mapVideo.videoHeight * patchHeightPercent);
+            const srcX = mapVideo.videoWidth - srcW;
+            const srcY = mapVideo.videoHeight - srcH;
+
+            // Destination coordinates (on level 2 image canvas)
+            const destW = Math.round(frameCanvas.width * patchWidthPercent);
+            const destH = Math.round(frameCanvas.height * patchHeightPercent);
+            const destX = frameCanvas.width - destW;
+            const destY = frameCanvas.height - destH;
+
+            // Copy the patch from level 1 map video to level 2 image
+            frameCtx.drawImage(
+                mapVideo,
+                srcX, srcY, srcW, srcH,  // Source rectangle
+                destX, destY, destW, destH  // Destination rectangle
+            );
+
+            console.log(`🖼️ Patched watermark with ${srcW}x${srcH} area from level 1 map`);
+        } else {
+            // Fallback: cover with dark color if video not available
+            const watermarkSize = Math.round(frameCanvas.width * 0.05);
+            frameCtx.fillStyle = '#0a0a0a';
+            frameCtx.fillRect(
+                frameCanvas.width - watermarkSize,
+                frameCanvas.height - watermarkSize,
+                watermarkSize,
+                watermarkSize
+            );
+            console.log('⚠️ Level 1 map video not ready, using dark fill for watermark');
+        }
+
+        // Store for use in drawMap
+        gameState.mapFrameCanvas = frameCanvas;
+        console.log(`🖼️ Level 2 map loaded: ${frameCanvas.width}x${frameCanvas.height}`);
+    };
+
+    level2MapImage.onerror = () => {
+        console.log('⚠️ Failed to load level 2 map image');
+    };
+
+    // Fade out cutscene
+    cutsceneDiv.style.transition = 'opacity 0.5s ease';
+    cutsceneDiv.style.opacity = '0';
+
+    setTimeout(() => {
+        cutsceneDiv.remove();
+
+        // Now unlock level 2 and spawn zombie
+        showMessage('💡 Generator is working! Level 2 unlocked!');
+        gameState.currentLevel = 2;
+
+        // Spawn zombie on second floor
+        if (gameState.enemies.length === 0) {
+            const zombieX = mapToScreenX(370);
+            const zombieY = canvas.height * 0.66;
+            const zombie = new Enemy(zombieX, zombieY, 'zombie');
+            gameState.enemies.push(zombie);
+            console.log('🧟 Zombie spawned on second floor!');
+        }
+    }, 500);
 }
 
 // Start the game
