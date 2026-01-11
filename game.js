@@ -69,7 +69,10 @@ const gameState = {
     circuitBreakers: [false, false, false, false, false], // false = down, true = up
     correctCombination: [true, true, true, true, true], // All 5 levers UP to win
     // High-quality map frame (used after level 2 reveal)
-    mapFrameCanvas: null
+    mapFrameCanvas: null,
+    // Quest flags
+    zombieDefeated: false,
+    reactorCoreInserted: false
 };
 
 // =============================================================
@@ -107,6 +110,11 @@ function screenToMapX(screenX) {
 // Interactive Zones Configuration (using MAP coordinates 344-384)
 const INTERACTIVE_ZONES_CONFIG = [
     {
+        name: 'chest_duplicate_remove',
+        // This is a duplicate entry that will be filtered out
+        floor: -1
+    },
+    {
         name: 'door',
         xMinMap: 358,
         xMaxMap: 360, // Door at 358-360
@@ -143,7 +151,7 @@ const INTERACTIVE_ZONES_CONFIG = [
         icon: '📦',
         action: 'Search Shelf',
         type: 'searchable',
-        floor: 1, // Only on first floor
+        floor: 1, // First floor
         searchMessage: '🔑 You found a rusty key hidden behind old books!',
         hasKey: true
     },
@@ -158,6 +166,38 @@ const INTERACTIVE_ZONES_CONFIG = [
         requiresUnlock: true,
         brokenMessage: '⚙️ The generator is broken. You need to fix it to restore power!',
         fixedMessage: '💡 Generator is working! Level 2 unlocked!'
+    },
+    {
+        name: 'chest',
+        xMinMap: 346,
+        xMaxMap: 350,
+        icon: '📦',
+        action: 'Open Chest',
+        type: 'chest',
+        floor: 2,
+        requiresZombieDefeated: true,
+        lockedMessage: '💀 The zombie is guarding this chest! Defeat it first.',
+        searchMessage: '📦 You found some supplies!',
+        imageSrc: 'Objects/Gemini_Generated_Image_ircl2yircl2yircl.png',
+        width: 200,
+        height: 200,
+        yOffset: 10,
+        loot: [
+            { icon: '🥫', name: 'Canned Food', count: 1 },
+            { icon: '🔩', name: 'Screws', count: 2 },
+            { icon: '⚛️', name: 'Reactor Core', count: 1 }
+        ]
+    },
+    {
+        name: 'reactor',
+        xMinMap: 370,
+        xMaxMap: 380,
+        icon: '☢️',
+        action: 'Insert Reactor Core',
+        type: 'reactor',
+        floor: 2,
+        requiresCoreMessage: '⚠️ The reactor needs a core to function. Find one!',
+        insertMessage: '☢️ Inserting Reactor Core...'
     }
 ];
 
@@ -364,6 +404,8 @@ class Enemy {
             this.visible = false;
             console.log('💀 Zombie defeated!');
             gameState.inCombat = false;
+            gameState.zombieDefeated = true; // Quest flag
+            showMessage('🎉 Zombie defeated! The chest is now accessible.');
             // Remove from enemies array
             const index = gameState.enemies.indexOf(this);
             if (index > -1) {
@@ -1027,6 +1069,225 @@ Promise.all([
     console.log('⚡ Generator images loaded!');
 });
 
+// =====================================================
+// LOOT UI SYSTEM
+// =====================================================
+const LootUI = {
+    active: false,
+    items: [],
+    flyingItems: [],
+
+    // UI Configuration
+    width: 300,
+    height: 200,
+    x: 0,
+    y: 0,
+    zoneName: '',
+
+    init() {
+        // Calculate position relative to MAP, not screen
+        const { drawWidth, offsetX } = getMapDrawMetrics();
+        this.x = offsetX + (drawWidth - this.width) / 2;
+        this.y = CONFIG.canvasHeight - this.height - 100; // 100px from bottom
+    },
+
+    open(zone) {
+        if (!zone.loot) return;
+
+        console.log('📦 Opening loot:', zone.loot);
+        this.active = true;
+        this.items = [...zone.loot]; // Copy items
+        this.zoneName = zone.name;
+        this.init(); // Re-center based on current map
+
+        // Play open sound if available
+    },
+
+    close() {
+        this.active = false;
+        this.items = [];
+    },
+
+    takeAll() {
+        if (this.items.length === 0) return;
+
+        console.log('🎒 Taking all items...');
+
+        const { drawWidth, offsetX } = getMapDrawMetrics();
+
+        // Create flying animations for each item
+        this.items.forEach((item, index) => {
+            // Start position (relative to UI)
+            const startX = this.x + 40;
+            const startY = this.y + 60 + (index * 50);
+
+            // Target position (Inventory icon - top right of MAP)
+            // Inventory icon is at right edge, top
+            const targetX = offsetX + drawWidth - 50;
+            const targetY = 80;
+
+            this.flyingItems.push({
+                icon: item.icon,
+                name: item.name,
+                count: item.count,
+                x: startX,
+                y: startY,
+                targetX: targetX,
+                targetY: targetY,
+                progress: 0,
+                speed: 1.5 + Math.random() * 0.5 // Randomize speed slightly
+            });
+
+            // Log collection
+            console.log(`Received: ${item.count}x ${item.name}`);
+        });
+
+        // Clear items and close UI
+        this.items = [];
+        this.close();
+
+        // Items will be added to inventory when they finish flying in update()
+    },
+
+    update(deltaTime) {
+        // Update flying items
+        for (let i = this.flyingItems.length - 1; i >= 0; i--) {
+            const item = this.flyingItems[i];
+            item.progress += item.speed * deltaTime;
+
+            // Ease in-out
+            const t = item.progress;
+            const ease = t < .5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+
+            item.currentX = item.x + (item.targetX - item.x) * ease;
+            item.currentY = item.y + (item.targetY - item.y) * ease;
+
+            if (item.progress >= 1) {
+                // Item reached inventory
+                Inventory.addItem(item.name, item.count, item.icon);
+                this.flyingItems.splice(i, 1);
+            }
+        }
+    },
+
+    draw(ctx) {
+        // Draw flying items (always on top)
+        this.flyingItems.forEach(item => {
+            ctx.font = '24px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(item.icon, item.currentX, item.currentY);
+        });
+
+        if (!this.active) return;
+
+        // Recalculate position in case of resize using MAP metrics
+        const { drawWidth, offsetX } = getMapDrawMetrics();
+        this.x = offsetX + (drawWidth - this.width) / 2;
+        this.y = CONFIG.canvasHeight - this.height - 100;
+
+        // --- Draw Modal Background ---
+        ctx.save();
+
+        // Shadow/Glow
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+        ctx.shadowBlur = 20;
+
+        // Main Box - Dark, grungy
+        ctx.fillStyle = '#1a1815'; // Dark brownish gray
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+
+        // Border - Tan/Rusty
+        ctx.strokeStyle = '#8c7b64';
+        ctx.lineWidth = 4;
+        ctx.strokeRect(this.x, this.y, this.width, this.height);
+
+        // Inner "Paper" texture approximation
+        ctx.fillStyle = '#262420';
+        ctx.fillRect(this.x + 10, this.y + 10, this.width - 20, this.height - 20);
+
+        // Header
+        ctx.fillStyle = '#cebba1'; // Old paper color text
+        ctx.font = 'bold 20px Courier New';
+        ctx.textAlign = 'center';
+        ctx.shadowBlur = 0;
+        ctx.fillText('STASH CONTENTS', this.x + this.width / 2, this.y + 35);
+
+        // Divider
+        ctx.beginPath();
+        ctx.moveTo(this.x + 20, this.y + 45);
+        ctx.lineTo(this.x + this.width - 20, this.y + 45);
+        ctx.strokeStyle = '#5c5244';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // --- Draw Items ---
+        ctx.textAlign = 'left';
+        ctx.font = '18px Courier New';
+
+        this.items.forEach((item, index) => {
+            const itemY = this.y + 80 + (index * 40);
+
+            // Icon
+            ctx.font = '24px Arial';
+            ctx.fillText(item.icon, this.x + 30, itemY);
+
+            // Text
+            ctx.font = '18px Courier New';
+            ctx.fillStyle = '#ddd';
+            ctx.fillText(`${item.count}x ${item.name}`, this.x + 70, itemY);
+        });
+
+        // --- Draw "Take All" Button ---
+        const btnHeight = 40;
+        const btnWidth = this.width - 40;
+        const btnX = this.x + 20;
+        const btnY = this.y + this.height - 60;
+
+        // Store button rect for click detection
+        this.takeAllBtn = { x: btnX, y: btnY, width: btnWidth, height: btnHeight };
+
+        ctx.fillStyle = '#4a6b32'; // Muted green
+        ctx.fillRect(btnX, btnY, btnWidth, btnHeight);
+
+        // Button Border
+        ctx.strokeStyle = '#6d8c54';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(btnX, btnY, btnWidth, btnHeight);
+
+        // Button Text
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 16px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText('TAKE ALL', btnX + btnWidth / 2, btnY + 25);
+
+        ctx.restore();
+    },
+
+    handleClick(clickX, clickY) {
+        if (!this.active) return false;
+
+        // Check "Take All" button
+        if (this.takeAllBtn &&
+            clickX >= this.takeAllBtn.x &&
+            clickX <= this.takeAllBtn.x + this.takeAllBtn.width &&
+            clickY >= this.takeAllBtn.y &&
+            clickY <= this.takeAllBtn.y + this.takeAllBtn.height) {
+
+            this.takeAll();
+            return true;
+        }
+
+        // Close if clicked outside
+        if (clickX < this.x || clickX > this.x + this.width ||
+            clickY < this.y || clickY > this.y + this.height) {
+            this.close();
+        }
+
+        return true; // Consume click if UI is open
+    }
+};
+
 // Game State
 const walkableManager = new WalkableAreaManager(WALKABLE_AREAS);
 // Initialize character at center of allowed range (starting at bunker level)
@@ -1041,6 +1302,12 @@ canvas.addEventListener('click', (e) => {
     const rect = canvas.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
+
+    // Check Loot UI first - if it handled the click, stop here
+    if (LootUI.handleClick(clickX, clickY)) return;
+
+    // Check Inventory Click
+    if (Inventory.handleClick(clickX, clickY)) return;
 
     // Don't process clicks while climbing
     if (gameState.isClimbing) return;
@@ -1206,6 +1473,170 @@ window.addEventListener('keydown', (e) => {
     }
 });
 
+// =====================================================
+// INVENTORY SYSTEM
+// =====================================================
+const Inventory = {
+    items: {}, // Map of name -> { count, icon }
+    visible: false,
+
+    addItem(name, count, icon) {
+        if (!this.items[name]) {
+            this.items[name] = { count: 0, icon: icon };
+        }
+        this.items[name].count += count;
+
+        // Show notification or visual feedback
+        showMessage(`+${count} ${name}`);
+    },
+
+    toggle() {
+        this.visible = !this.visible;
+    },
+
+    draw(ctx) {
+        // Draw Inventory Icon (Bag)
+        const { drawWidth, offsetX } = getMapDrawMetrics();
+        const iconX = offsetX + drawWidth - 60;
+        const iconY = 60;
+        const iconSize = 40;
+
+        ctx.save();
+
+        // Bag Icon Background
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.beginPath();
+        ctx.arc(iconX + iconSize / 2, iconY + iconSize / 2, iconSize / 2 + 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#8c7b64';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Icon Text (👜)
+        ctx.font = '30px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🎒', iconX + iconSize / 2, iconY + iconSize / 2);
+
+        // Store click area
+        this.clickArea = { x: iconX, y: iconY, width: iconSize, height: iconSize };
+
+        // If Inventory Open: Draw Dropdown List
+        if (this.visible) {
+            const listWidth = 200;
+            const listX = iconX - listWidth + iconSize + 10;
+            const listY = iconY + iconSize + 10;
+
+            const itemList = Object.keys(this.items);
+            const listHeight = itemList.length * 40 + 20;
+
+            // Background
+            ctx.fillStyle = 'rgba(20, 18, 15, 0.95)';
+            ctx.fillRect(listX, listY, listWidth, listHeight);
+            ctx.strokeStyle = '#8c7b64';
+            ctx.strokeRect(listX, listY, listWidth, listHeight);
+
+            // Draw Items
+            ctx.font = '16px Courier New';
+            ctx.textAlign = 'left';
+            ctx.fillStyle = '#ddd';
+
+            if (itemList.length === 0) {
+                ctx.fillText('Empty...', listX + 20, listY + 30);
+            } else {
+                itemList.forEach((name, i) => {
+                    const item = this.items[name];
+                    const y = listY + 30 + (i * 40);
+                    ctx.fillText(`${item.icon} ${item.count}x ${name}`, listX + 15, y);
+                });
+            }
+        }
+
+        ctx.restore();
+    },
+
+    handleClick(x, y) {
+        if (this.clickArea &&
+            x >= this.clickArea.x && x <= this.clickArea.x + this.clickArea.width &&
+            y >= this.clickArea.y && y <= this.clickArea.y + this.clickArea.height) {
+            this.toggle();
+            return true;
+        }
+        if (this.visible) {
+            // Close if clicking outside when open
+            this.visible = false;
+        }
+        return false;
+    }
+};
+
+// =====================================================
+// HUD RENDERING
+// =====================================================
+const profileIconImg = new Image();
+profileIconImg.src = 'Character/Walking_Animations/Walkind_front/Gemini_Generated_Image_528t6j528t6j528t_1.jpg';
+
+function drawHUD(ctx) {
+    const { drawWidth, offsetX } = getMapDrawMetrics();
+
+    // HUD padding
+    const padX = 20;
+    const padY = 20;
+
+    // 1. Profile Icon
+    const iconSize = 50;
+    const iconX = offsetX + padX;
+    const iconY = padY;
+
+    ctx.save();
+
+    // Draw Circle Background/Border
+    ctx.beginPath();
+    ctx.arc(iconX + iconSize / 2, iconY + iconSize / 2, iconSize / 2, 0, Math.PI * 2);
+    ctx.fillStyle = '#111';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.clip(); // Clip image to circle
+
+    if (profileIconImg.complete) {
+        ctx.drawImage(profileIconImg, iconX, iconY, iconSize, iconSize);
+    }
+
+    ctx.restore();
+
+    // 2. Health Bar (Smaller, next to icon)
+    const hpWidth = 120; // Reduced from 200
+    const hpHeight = 14; // Reduced from 20
+    const hpX = iconX + iconSize + 10;
+    const hpY = iconY + (iconSize - hpHeight) / 2;
+
+    const healthPercent = Math.max(0, gameState.playerHealth / gameState.playerMaxHealth);
+
+    // Bg
+    ctx.fillStyle = '#333';
+    ctx.fillRect(hpX, hpY, hpWidth, hpHeight);
+
+    // Fill
+    ctx.fillStyle = healthPercent > 0.5 ? '#4CAF50' : (healthPercent > 0.25 ? '#FFC107' : '#F44336');
+    ctx.fillRect(hpX, hpY, hpWidth * healthPercent, hpHeight);
+
+    // Border
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(hpX, hpY, hpWidth, hpHeight);
+
+    // Text
+    ctx.fillStyle = '#fff';
+    ctx.font = '10px Arial';
+    ctx.fillText(`${Math.ceil(gameState.playerHealth)}/${gameState.playerMaxHealth}`, hpX + 5, hpY + 11);
+
+    // 3. Inventory
+    Inventory.draw(ctx);
+}
+
+
 // Game Loop
 function gameLoop(currentTime) {
     const deltaTime = (currentTime - lastTime) / 1000; // Convert to seconds
@@ -1225,6 +1656,10 @@ function gameLoop(currentTime) {
     // Draw walkable areas (if debug mode enabled)
     walkableManager.draw(ctx);
 
+
+    // Draw clickable objects (chest, etc.)
+    drawObjects(ctx);
+
     // Update and draw character
     character.update(deltaTime);
     character.draw(ctx);
@@ -1235,29 +1670,16 @@ function gameLoop(currentTime) {
         enemy.draw(ctx);
     }
 
-    // Draw player health bar
-    const healthBarWidth = 200;
-    const healthBarHeight = 20;
-    const healthBarX = 20;
-    const healthBarY = 20;
-    const healthPercent = gameState.playerHealth / gameState.playerMaxHealth;
-
-    ctx.fillStyle = '#333';
-    ctx.fillRect(healthBarX, healthBarY, healthBarWidth, healthBarHeight);
-
-    ctx.fillStyle = healthPercent > 0.5 ? '#4CAF50' : (healthPercent > 0.25 ? '#FFC107' : '#F44336');
-    ctx.fillRect(healthBarX, healthBarY, healthBarWidth * healthPercent, healthBarHeight);
-
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(healthBarX, healthBarY, healthBarWidth, healthBarHeight);
-
-    ctx.fillStyle = '#fff';
-    ctx.font = '14px Arial';
-    ctx.fillText(`HP: ${Math.max(0, gameState.playerHealth)}/${gameState.playerMaxHealth}`, healthBarX + 5, healthBarY + 15);
+    // Draw HUD (Profile, Health, Inventory)
+    // Replaces old health bar code
+    drawHUD(ctx);
 
     // Check interactive zones and show/hide action button
     checkInteractiveZones();
+
+    // Update and draw Loot UI
+    LootUI.update(deltaTime);
+    LootUI.draw(ctx);
 
     requestAnimationFrame(gameLoop);
 }
@@ -1311,6 +1733,79 @@ function drawGrid() {
     }
 }
 
+// Object Rendering System
+const objectImages = {};
+
+function drawObjects(ctx) {
+    const { drawWidth, offsetX } = getMapDrawMetrics();
+
+    // Floor Y levels
+    const floor1Y = canvas.height * 0.563;
+    const floor2Y = canvas.height * 0.66; // lowerFloorY
+
+    INTERACTIVE_ZONES_CONFIG.forEach(zone => {
+        // Only draw if it has an image source
+        if (zone.imageSrc) {
+            // Determine Y position based on floor
+            const groundY = zone.floor === 2 ? floor2Y : floor1Y;
+
+            // Calculate screen X (center of the zone)
+            const zoneCenterMapX = (zone.xMinMap + zone.xMaxMap) / 2;
+            const screenX = mapToScreenX(zoneCenterMapX);
+            const screenY = groundY + (zone.yOffset || 0);
+
+            // Load image if not verified
+            if (!objectImages[zone.name]) {
+                const img = new Image();
+                img.src = zone.imageSrc;
+                objectImages[zone.name] = img; // Placeholder
+            }
+
+            const imgOrCanvas = objectImages[zone.name];
+
+            // If it's a raw image that's loaded, process it
+            if (imgOrCanvas instanceof Image && imgOrCanvas.complete && imgOrCanvas.width > 0) {
+                // Apply Chroma Key
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = imgOrCanvas.width;
+                tempCanvas.height = imgOrCanvas.height;
+                const tCtx = tempCanvas.getContext('2d');
+                tCtx.drawImage(imgOrCanvas, 0, 0);
+
+                const imageData = tCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+                const data = imageData.data;
+
+                for (let i = 0; i < data.length; i += 4) {
+                    const r = data[i], g = data[i + 1], b = data[i + 2];
+                    // Remove white (180+ or total brightness approach)
+                    // Strict threshold to remove halo
+                    if (r > 180 && g > 180 && b > 180) {
+                        data[i + 3] = 0;
+                    }
+                    // Secondary check for "very light" pixels (anti-aliasing)
+                    else if ((r + g + b) > 650) {
+                        data[i + 3] = 0;
+                    }
+                }
+
+                tCtx.putImageData(imageData, 0, 0);
+
+                // Replace in cache with processed canvas
+                objectImages[zone.name] = tempCanvas;
+            }
+
+            // Draw if it's a ready canvas (or image, but we prefer canvas)
+            if (objectImages[zone.name].width > 0) { // Works for both Image and Canvas
+                const drawable = objectImages[zone.name];
+                const w = zone.width || 40;
+                const h = zone.height || 40;
+                // If user meant absolute Y=365, we might need to respect that if zone.yAbsolute is set, but sticking to offsets for now.
+                ctx.drawImage(drawable, screenX - w / 2, screenY - h / 2, w, h);
+            }
+        }
+    });
+}
+
 // Check if character is in an interactive zone
 let currentZone = null;
 
@@ -1349,14 +1844,20 @@ actionButton.addEventListener('click', () => {
 
         // Handle searchable objects
         if (currentZone.type === 'searchable') {
-            showMessage(currentZone.searchMessage);
-            gameState.searchedObjects.add(currentZone.name);
+            if (currentZone.loot) {
+                // Open Loot UI for chests/containers
+                LootUI.open(currentZone);
+            } else {
+                // Legacy behavior for non-loot searchable items
+                showMessage(currentZone.searchMessage);
+                gameState.searchedObjects.add(currentZone.name);
 
-            if (currentZone.hasKey && !gameState.keyFound) {
-                gameState.keyFound = true;
-                setTimeout(() => {
-                    showMessage('🎉 You found the Room Key!');
-                }, 2000);
+                if (currentZone.hasKey && !gameState.keyFound) {
+                    gameState.keyFound = true;
+                    setTimeout(() => {
+                        showMessage('🎉 You found the Room Key!');
+                    }, 2000);
+                }
             }
         }
         // Handle action objects (Bed)
@@ -1392,8 +1893,133 @@ actionButton.addEventListener('click', () => {
                 showMessage('The generator is humming smoothly.');
             }
         }
+        // Handle Chest (Floor 2, requires zombie defeat)
+        else if (currentZone.type === 'chest') {
+            if (currentZone.requiresZombieDefeated && !gameState.zombieDefeated) {
+                showMessage(currentZone.lockedMessage);
+            } else if (currentZone.loot) {
+                LootUI.open(currentZone);
+            }
+        }
+        // Handle Reactor (Floor 2, accepts Reactor Core)
+        else if (currentZone.type === 'reactor') {
+            if (gameState.reactorCoreInserted) {
+                showMessage('The reactor is already powered.');
+            } else if (Inventory.items['Reactor Core'] && Inventory.items['Reactor Core'].count > 0) {
+                // Remove core from inventory
+                Inventory.items['Reactor Core'].count--;
+                if (Inventory.items['Reactor Core'].count <= 0) {
+                    delete Inventory.items['Reactor Core'];
+                }
+                gameState.reactorCoreInserted = true;
+                showMessage(currentZone.insertMessage);
+                // Play cutscene and load new map
+                playReactorCutscene();
+            } else {
+                showMessage(currentZone.requiresCoreMessage);
+            }
+        }
     }
 });
+
+// Play Reactor Core Cutscene and Load Level 3 Map
+function playReactorCutscene() {
+    console.log('☢️ Playing reactor cutscene...');
+
+    const cutsceneDiv = document.createElement('div');
+    cutsceneDiv.id = 'reactor-cutscene';
+    cutsceneDiv.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 100vw;
+        height: 100vh;
+        max-width: 56.25vh;
+        background: #000;
+        z-index: 3000;
+        overflow: hidden;
+    `;
+
+    const video = document.createElement('video');
+    video.src = 'Cutscenes/download (56).mp4';
+    video.style.cssText = `
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    `;
+    video.muted = false;
+    video.playsInline = true;
+
+    cutsceneDiv.appendChild(video);
+    document.body.appendChild(cutsceneDiv);
+
+    let cutsceneEnded = false;
+
+    video.addEventListener('ended', () => {
+        if (!cutsceneEnded) {
+            endReactorCutscene(cutsceneDiv);
+            cutsceneEnded = true;
+        }
+    });
+
+    video.play().catch(err => {
+        console.log('Cutscene autoplay blocked, skipping...');
+        endReactorCutscene(cutsceneDiv);
+        cutsceneEnded = true;
+    });
+
+    // Fallback timeout
+    setTimeout(() => {
+        if (!cutsceneEnded && document.getElementById('reactor-cutscene')) {
+            endReactorCutscene(cutsceneDiv);
+            cutsceneEnded = true;
+        }
+    }, 20000);
+
+    // Allow skip on click
+    cutsceneDiv.addEventListener('click', () => {
+        if (!cutsceneEnded) {
+            endReactorCutscene(cutsceneDiv);
+            cutsceneEnded = true;
+        }
+    });
+}
+
+function endReactorCutscene(cutsceneDiv) {
+    // Load Level 3 map
+    const level3MapImage = new Image();
+    level3MapImage.src = 'Maps/Gemini_Generated_Image_gmqmqogmqmqogmqm.png';
+
+    level3MapImage.onload = () => {
+        const frameCanvas = document.createElement('canvas');
+        frameCanvas.width = level3MapImage.width;
+        frameCanvas.height = level3MapImage.height;
+        const frameCtx = frameCanvas.getContext('2d');
+        frameCtx.drawImage(level3MapImage, 0, 0);
+
+        gameState.mapFrameCanvas = frameCanvas;
+        console.log(`🖼️ Level 3 map loaded: ${frameCanvas.width}x${frameCanvas.height}`);
+    };
+
+    level3MapImage.onerror = () => {
+        console.log('⚠️ Failed to load Level 3 map image');
+    };
+
+    // Fade out cutscene
+    cutsceneDiv.style.transition = 'opacity 0.5s ease';
+    cutsceneDiv.style.opacity = '0';
+
+    setTimeout(() => {
+        cutsceneDiv.remove();
+        showMessage('☢️ Reactor Core Inserted! New floors unlocked!');
+        gameState.currentLevel = 3;
+        console.log('🎉 Level 3 unlocked!');
+    }, 500);
+}
 
 // Show message popup
 function showMessage(text) {
