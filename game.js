@@ -57,6 +57,9 @@ const gameState = {
     generatorFixed: false,
     isClimbing: false,
     onSecondFloor: false,
+    isClimbing: false,
+    onSecondFloor: false,
+    onThirdFloor: false,
     climbTargetX: null, // Store where to walk after climbing
     // Combat system
     playerHealth: 100,
@@ -72,7 +75,368 @@ const gameState = {
     mapFrameCanvas: null,
     // Quest flags
     zombieDefeated: false,
-    reactorCoreInserted: false
+    reactorCoreInserted: false,
+    // Placed items (build mode)
+    placedItems: [],
+    // Currency
+    money: 100
+};
+
+// =====================================================
+// BUILD MODE SYSTEM
+// =====================================================
+const FLOOR_GRIDS = {
+    1: { cols: 5, rows: 2, startMapX: 355, yPercent: 0.50, tileSize: 30 },
+    2: { cols: 5, rows: 2, startMapX: 355, yPercent: 0.61, tileSize: 30 },
+    3: { cols: 5, rows: 2, startMapX: 355, yPercent: 0.75, tileSize: 30 }
+};
+
+const BUILDABLE_ITEMS = [
+    { id: 'chest', name: 'Chest', icon: '📦', cost: { Metal: 5 }, size: 1, category: 'storage' },
+    { id: 'lamp', name: 'Lamp', icon: '💡', cost: { Metal: 2 }, size: 1, category: 'utility' },
+    { id: 'turret', name: 'Turret', icon: '🔫', cost: { Metal: 20, Screws: 5 }, size: 1, category: 'defense' },
+    { id: 'bed', name: 'Bed', icon: '🛏️', cost: { Metal: 10 }, size: 1, category: 'utility' },
+    { id: 'workbench', name: 'Workbench', icon: '🔧', cost: { Metal: 15 }, size: 1, category: 'production' },
+    { id: 'barrel', name: 'Barrel', icon: '🛢️', cost: { Metal: 3 }, size: 1, category: 'storage' }
+];
+
+const BuildMode = {
+    active: false,
+    menuOpen: false,
+    selectedItem: null,
+    ghostX: 0,
+    ghostY: 0,
+    ghostGridX: 0,
+    ghostGridY: 0,
+    isValidPlacement: false,
+
+    toggle() {
+        this.active = !this.active;
+        if (!this.active) {
+            this.menuOpen = false;
+            this.selectedItem = null;
+        } else {
+            this.menuOpen = true;
+        }
+    },
+
+    selectItem(itemId) {
+        this.selectedItem = BUILDABLE_ITEMS.find(i => i.id === itemId) || null;
+        this.menuOpen = false;
+    },
+
+    cancelSelection() {
+        this.selectedItem = null;
+        this.menuOpen = true;
+    },
+
+    getCurrentFloor() {
+        if (gameState.onThirdFloor) return 3;
+        if (gameState.onSecondFloor) return 2;
+        return 1;
+    },
+
+    getGrid() {
+        return FLOOR_GRIDS[this.getCurrentFloor()];
+    },
+
+    screenToGrid(screenX, screenY) {
+        const grid = this.getGrid();
+        const { drawWidth, offsetX } = getMapDrawMetrics();
+        const startScreenX = mapToScreenX(grid.startMapX);
+        const startScreenY = canvas.height * grid.yPercent;
+
+        const gridX = Math.floor((screenX - startScreenX) / grid.tileSize);
+        const gridY = Math.floor((screenY - startScreenY) / grid.tileSize);
+
+        return { gridX, gridY };
+    },
+
+    gridToScreen(gridX, gridY) {
+        const grid = this.getGrid();
+        const startScreenX = mapToScreenX(grid.startMapX);
+        const startScreenY = canvas.height * grid.yPercent;
+
+        return {
+            x: startScreenX + gridX * grid.tileSize,
+            y: startScreenY + gridY * grid.tileSize
+        };
+    },
+
+    updateGhost(screenX, screenY) {
+        const { gridX, gridY } = this.screenToGrid(screenX, screenY);
+        const grid = this.getGrid();
+
+        // Clamp to grid bounds
+        this.ghostGridX = Math.max(0, Math.min(grid.cols - 1, gridX));
+        this.ghostGridY = Math.max(0, Math.min(grid.rows - 1, gridY));
+
+        const pos = this.gridToScreen(this.ghostGridX, this.ghostGridY);
+        this.ghostX = pos.x;
+        this.ghostY = pos.y;
+
+        // Check validity
+        this.isValidPlacement = this.canPlace(this.ghostGridX, this.ghostGridY);
+    },
+
+    canPlace(gridX, gridY) {
+        const floor = this.getCurrentFloor();
+        const grid = this.getGrid();
+
+        // Out of bounds
+        if (gridX < 0 || gridX >= grid.cols || gridY < 0 || gridY >= grid.rows) {
+            return false;
+        }
+
+        // Check if tile is occupied
+        const occupied = gameState.placedItems.some(item =>
+            item.floor === floor && item.gridX === gridX && item.gridY === gridY
+        );
+
+        if (occupied) return false;
+
+        // Check resources
+        if (this.selectedItem) {
+            for (const [resource, amount] of Object.entries(this.selectedItem.cost)) {
+                const have = Inventory.items[resource]?.count || 0;
+                if (have < amount) return false;
+            }
+        }
+
+        return true;
+    },
+
+    placeItem() {
+        if (!this.selectedItem || !this.isValidPlacement) return false;
+
+        const floor = this.getCurrentFloor();
+
+        // Deduct resources
+        for (const [resource, amount] of Object.entries(this.selectedItem.cost)) {
+            if (Inventory.items[resource]) {
+                Inventory.items[resource].count -= amount;
+            }
+        }
+
+        // Add to placed items
+        gameState.placedItems.push({
+            id: this.selectedItem.id,
+            floor: floor,
+            gridX: this.ghostGridX,
+            gridY: this.ghostGridY
+        });
+
+        console.log(`🔨 Placed ${this.selectedItem.name} at (${this.ghostGridX}, ${this.ghostGridY}) on floor ${floor}`);
+        showMessage(`Placed ${this.selectedItem.icon} ${this.selectedItem.name}`);
+
+        return true;
+    },
+
+    draw(ctx) {
+        if (!this.active) return;
+
+        const { drawWidth, offsetX } = getMapDrawMetrics();
+        const grid = this.getGrid();
+
+        // Draw grid overlay
+        ctx.save();
+        const startScreenX = mapToScreenX(grid.startMapX);
+        const startScreenY = canvas.height * grid.yPercent;
+
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.lineWidth = 1;
+
+        for (let x = 0; x <= grid.cols; x++) {
+            ctx.beginPath();
+            ctx.moveTo(startScreenX + x * grid.tileSize, startScreenY);
+            ctx.lineTo(startScreenX + x * grid.tileSize, startScreenY + grid.rows * grid.tileSize);
+            ctx.stroke();
+        }
+        for (let y = 0; y <= grid.rows; y++) {
+            ctx.beginPath();
+            ctx.moveTo(startScreenX, startScreenY + y * grid.tileSize);
+            ctx.lineTo(startScreenX + grid.cols * grid.tileSize, startScreenY + y * grid.tileSize);
+            ctx.stroke();
+        }
+
+        // Draw ghost preview
+        if (this.selectedItem) {
+            ctx.globalAlpha = 0.6;
+            ctx.fillStyle = this.isValidPlacement ? 'rgba(0, 255, 0, 0.3)' : 'rgba(255, 0, 0, 0.3)';
+            ctx.fillRect(this.ghostX, this.ghostY, grid.tileSize, grid.tileSize);
+
+            ctx.font = `${grid.tileSize - 8}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#fff';
+            ctx.fillText(this.selectedItem.icon, this.ghostX + grid.tileSize / 2, this.ghostY + grid.tileSize / 2);
+            ctx.globalAlpha = 1.0;
+        }
+
+        ctx.restore();
+
+        // Draw menu if open
+        if (this.menuOpen) {
+            this.drawMenu(ctx);
+        }
+    },
+
+    drawMenu(ctx) {
+        const { drawWidth, offsetX } = getMapDrawMetrics();
+        const menuWidth = 240;
+        const menuHeight = 320;
+        const menuX = offsetX + (drawWidth - menuWidth) / 2;
+        const menuY = canvas.height * 0.25;
+
+        ctx.save();
+
+        // Darker overlay behind menu
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Menu background with rounded corners
+        ctx.fillStyle = 'rgba(30, 25, 20, 0.98)';
+        ctx.beginPath();
+        ctx.roundRect(menuX, menuY, menuWidth, menuHeight, 12);
+        ctx.fill();
+
+        // Border
+        ctx.strokeStyle = '#b8a066';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        // Title bar background
+        ctx.fillStyle = 'rgba(60, 50, 40, 0.9)';
+        ctx.beginPath();
+        ctx.roundRect(menuX, menuY, menuWidth, 40, [12, 12, 0, 0]);
+        ctx.fill();
+
+        // Title
+        ctx.font = 'bold 18px Arial';
+        ctx.fillStyle = '#ffd700';
+        ctx.textAlign = 'center';
+        ctx.fillText('🔨 BUILD', menuX + menuWidth / 2, menuY + 26);
+
+        // Money display in header
+        ctx.font = 'bold 12px Arial';
+        ctx.fillStyle = '#ffd700';
+        ctx.textAlign = 'left';
+        ctx.fillText(`💰 ${gameState.money}`, menuX + 15, menuY + 26);
+
+        // Items
+        ctx.font = '14px Arial';
+        ctx.textAlign = 'left';
+
+        this.menuItems = [];
+        BUILDABLE_ITEMS.forEach((item, i) => {
+            const itemY = menuY + 55 + i * 40;
+            const itemHeight = 35;
+
+            // Check if affordable
+            let affordable = true;
+            for (const [resource, amount] of Object.entries(item.cost)) {
+                const have = Inventory.items[resource]?.count || 0;
+                if (have < amount) affordable = false;
+            }
+
+            // Item row background
+            ctx.fillStyle = affordable ? 'rgba(70, 65, 55, 0.9)' : 'rgba(90, 50, 50, 0.9)';
+            ctx.beginPath();
+            ctx.roundRect(menuX + 12, itemY, menuWidth - 24, itemHeight, 6);
+            ctx.fill();
+
+            // Hover border effect for affordable items
+            if (affordable) {
+                ctx.strokeStyle = 'rgba(180, 160, 100, 0.5)';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+
+            // Icon + Name
+            ctx.font = 'bold 16px Arial';
+            ctx.fillStyle = affordable ? '#fff' : '#777';
+            ctx.fillText(`${item.icon}`, menuX + 22, itemY + 23);
+            ctx.font = '14px Arial';
+            ctx.fillText(`${item.name}`, menuX + 50, itemY + 23);
+
+            // Cost (right side)
+            ctx.textAlign = 'right';
+            ctx.font = '12px Arial';
+            ctx.fillStyle = affordable ? '#aaa' : '#666';
+            const costStr = Object.entries(item.cost).map(([r, a]) => `${a} ${r}`).join(', ');
+            ctx.fillText(costStr, menuX + menuWidth - 22, itemY + 23);
+            ctx.textAlign = 'left';
+
+            // Store click area
+            this.menuItems.push({
+                item: item,
+                x: menuX + 12,
+                y: itemY,
+                width: menuWidth - 24,
+                height: itemHeight,
+                affordable: affordable
+            });
+        });
+
+        // Close button (top-right)
+        const closeX = menuX + menuWidth - 35;
+        const closeY = menuY + 8;
+        ctx.fillStyle = '#e74c3c';
+        ctx.beginPath();
+        ctx.roundRect(closeX, closeY, 25, 25, 5);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 16px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('✕', closeX + 12, closeY + 13);
+
+        this.closeButtonArea = { x: closeX, y: closeY, width: 25, height: 25 };
+
+        ctx.restore();
+    },
+
+    handleClick(x, y) {
+        if (!this.active) return false;
+
+        // Check close button
+        if (this.menuOpen && this.closeButtonArea) {
+            const cb = this.closeButtonArea;
+            if (x >= cb.x && x <= cb.x + cb.width && y >= cb.y && y <= cb.y + cb.height) {
+                this.toggle(); // Close build mode
+                return true;
+            }
+        }
+
+        // Check menu item clicks
+        if (this.menuOpen && this.menuItems) {
+            for (const mi of this.menuItems) {
+                if (x >= mi.x && x <= mi.x + mi.width && y >= mi.y && y <= mi.y + mi.height) {
+                    if (mi.affordable) {
+                        this.selectItem(mi.item.id);
+                    }
+                    return true;
+                }
+            }
+        }
+
+        // If item selected, try to place
+        if (this.selectedItem) {
+            this.updateGhost(x, y);
+            if (this.placeItem()) {
+                // Keep item selected for multi-place
+                return true;
+            }
+        }
+
+        return false;
+    },
+
+    handleMove(x, y) {
+        if (this.active && this.selectedItem) {
+            this.updateGhost(x, y);
+        }
+    }
 };
 
 // =============================================================
@@ -207,8 +571,13 @@ function getMovementConstraints() {
     const leftLimit = gameState.generatorRoomUnlocked ? 344 : 358;
     const rightLimit = 384;
 
-    // Different Y position for Level 2 (second floor)
-    const yPos = gameState.currentLevel === 2 ? 0.563 : 0.57;
+    // Different Y position for Level 2 (second floor) and Level 3
+    let yPos = 0.57;
+    if (gameState.onThirdFloor) {
+        yPos = 0.795;
+    } else if (gameState.onSecondFloor) {
+        yPos = 0.563;
+    }
 
     return {
         yPercent: yPos,
@@ -220,7 +589,9 @@ function getMovementConstraints() {
 // Get interactive zones with current screen dimensions
 function getInteractiveZones() {
     // Filter zones based on current floor
-    const currentFloor = gameState.onSecondFloor ? 2 : 1;
+    let currentFloor = 1;
+    if (gameState.onThirdFloor) currentFloor = 3;
+    else if (gameState.onSecondFloor) currentFloor = 2;
 
     return INTERACTIVE_ZONES_CONFIG
         .filter(zone => zone.floor === currentFloor)
@@ -1306,6 +1677,20 @@ canvas.addEventListener('click', (e) => {
     // Check Loot UI first - if it handled the click, stop here
     if (LootUI.handleClick(clickX, clickY)) return;
 
+    // Check Build Button click
+    if (window.buildButtonArea) {
+        const btn = window.buildButtonArea;
+        const dx = clickX - (btn.x + btn.size / 2);
+        const dy = clickY - (btn.y + btn.size / 2);
+        if (Math.sqrt(dx * dx + dy * dy) < btn.size / 2) {
+            BuildMode.toggle();
+            return;
+        }
+    }
+
+    // Check BuildMode clicks (menu, placement)
+    if (BuildMode.handleClick(clickX, clickY)) return;
+
     // Check Inventory Click
     if (Inventory.handleClick(clickX, clickY)) return;
 
@@ -1317,8 +1702,9 @@ canvas.addEventListener('click', (e) => {
     const currentFloorY = canvas.height * 0.563; // Bunker first floor (where character starts)
     const lowerFloorY = canvas.height * 0.66; // Lower bunker floor (second floor down)
 
-    // Check if clicking on lower floor (below current position) when on Level 2
-    if (gameState.currentLevel === 2 && !gameState.onSecondFloor && clickY > currentFloorY) {
+    // Check if clicking on lower floor (below current position) when on Level 2 or higher
+    // FIX: Also check that we're NOT already on Level 3
+    if (gameState.currentLevel >= 2 && !gameState.onSecondFloor && !gameState.onThirdFloor && clickY > currentFloorY) {
         // Trigger climb DOWN to lower floor
         console.log('🪜 Going down to lower floor...');
         gameState.isClimbing = true;
@@ -1361,7 +1747,8 @@ canvas.addEventListener('click', (e) => {
         }, 100);
     }
     // Check if clicking on first floor (above current position) when on second floor
-    else if (gameState.currentLevel === 2 && gameState.onSecondFloor && clickY < currentFloorY) {
+    // FIX: logic changed from gameState.currentLevel === 2 to >= 2 to allow returning to L1 even if L3 is unlocked
+    else if (gameState.currentLevel >= 2 && gameState.onSecondFloor && clickY < currentFloorY) {
         // Trigger climb UP to first floor
         console.log('🪜 Climbing back up to first floor...');
         gameState.isClimbing = true;
@@ -1389,6 +1776,81 @@ canvas.addEventListener('click', (e) => {
                     const maxX = mapToScreenX(constraints.xMaxMap);
                     const clampedX = Math.max(minX, Math.min(maxX, gameState.climbTargetX));
                     character.moveTo(clampedX, currentFloorY);
+                }, 1000);
+            }
+        }, 100);
+    }
+    // Check if clicking on third floor (below current position) when on Level 3 (unlocked) AND on second floor
+    else if (gameState.currentLevel === 3 && gameState.onSecondFloor && clickY > lowerFloorY) {
+        // Trigger climb DOWN to third floor
+        console.log('🪜 Going down to third floor...');
+        gameState.isClimbing = true;
+        gameState.climbTargetX = clickX;
+
+        // Walk to ladder/stairs/hatch position (assumed same vertical shaft at 335)
+        const stairsX = mapToScreenX(335);
+        character.moveTo(stairsX, lowerFloorY);
+
+        const checkArrival = setInterval(() => {
+            if (!character.moving) {
+                clearInterval(checkArrival);
+                character.visible = false;
+                console.log('👻 Character hidden, going deeper...');
+
+                setTimeout(() => {
+                    const thirdFloorY = canvas.height * 0.795;
+                    const thirdFloorLeftX = mapToScreenX(344);
+
+                    character.x = thirdFloorLeftX;
+                    character.y = thirdFloorY;
+
+                    character.visible = true;
+                    gameState.onSecondFloor = false;
+                    gameState.onThirdFloor = true;
+                    gameState.isClimbing = false;
+                    console.log('✨ Character on third floor!');
+
+                    const minX = mapToScreenX(constraints.xMinMap);
+                    const maxX = mapToScreenX(constraints.xMaxMap);
+                    const clampedX = Math.max(minX, Math.min(maxX, gameState.climbTargetX));
+                    character.moveTo(clampedX, thirdFloorY);
+                }, 1000);
+            }
+        }, 100);
+    }
+    // Check if clicking on second floor (above) when on third floor
+    // FIX: Only trigger ascent if clicking strictly above the FIRST floor line (0.563)
+    // This ensures clicks in the L2/L3 gap are treated as movement, not climbing
+    else if (gameState.onThirdFloor && clickY < currentFloorY) {
+        // Trigger climb UP to second floor
+        console.log('🪜 Climbing back up to second floor...');
+        gameState.isClimbing = true;
+        gameState.climbTargetX = clickX;
+
+        const currentThirdFloorY = canvas.height * 0.795;
+        const stairsX = mapToScreenX(335);
+        character.moveTo(stairsX, currentThirdFloorY);
+
+        const checkArrival = setInterval(() => {
+            if (!character.moving) {
+                clearInterval(checkArrival);
+                character.visible = false;
+                console.log('👻 Character hidden, climbing up...');
+
+                setTimeout(() => {
+                    character.x = mapToScreenX(344);
+                    character.y = lowerFloorY;
+
+                    character.visible = true;
+                    gameState.onThirdFloor = false;
+                    gameState.onSecondFloor = true;
+                    gameState.isClimbing = false;
+                    console.log('✨ Character back on second floor!');
+
+                    const minX = mapToScreenX(constraints.xMinMap);
+                    const maxX = mapToScreenX(constraints.xMaxMap);
+                    const clampedX = Math.max(minX, Math.min(maxX, gameState.climbTargetX));
+                    character.moveTo(clampedX, lowerFloorY);
                 }, 1000);
             }
         }, 100);
@@ -1429,7 +1891,10 @@ canvas.addEventListener('click', (e) => {
             }
         } else {
             // Normal movement on current floor
-            const fixedY = gameState.onSecondFloor ? lowerFloorY : currentFloorY;
+            let fixedY = currentFloorY;
+            if (gameState.onThirdFloor) fixedY = canvas.height * 0.795;
+            else if (gameState.onSecondFloor) fixedY = lowerFloorY;
+
             const minX = mapToScreenX(constraints.xMinMap);
             const maxX = mapToScreenX(constraints.xMaxMap);
             const clampedX = Math.max(minX, Math.min(maxX, clickX));
@@ -1471,7 +1936,53 @@ window.addEventListener('keydown', (e) => {
         CONFIG.showWalkableAreas = !CONFIG.showWalkableAreas;
         console.log(`🔍 Walkable areas debug: ${CONFIG.showWalkableAreas ? 'ON' : 'OFF'}`);
     }
+    // ESC to cancel build mode selection
+    if (e.key === 'Escape' && BuildMode.active) {
+        if (BuildMode.selectedItem) {
+            BuildMode.cancelSelection();
+        } else {
+            BuildMode.toggle();
+        }
+    }
 });
+
+// Mouse/Touch move for ghost preview
+canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    BuildMode.handleMove(e.clientX - rect.left, e.clientY - rect.top);
+});
+
+canvas.addEventListener('touchmove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const touch = e.touches[0];
+    BuildMode.handleMove(touch.clientX - rect.left, touch.clientY - rect.top);
+});
+
+// Draw placed items on the current floor
+function drawPlacedItems(ctx) {
+    const currentFloor = BuildMode.getCurrentFloor();
+    const grid = FLOOR_GRIDS[currentFloor];
+
+    for (const placed of gameState.placedItems) {
+        if (placed.floor !== currentFloor) continue;
+
+        const itemDef = BUILDABLE_ITEMS.find(i => i.id === placed.id);
+        if (!itemDef) continue;
+
+        const startScreenX = mapToScreenX(grid.startMapX);
+        const startScreenY = canvas.height * grid.yPercent;
+        const x = startScreenX + placed.gridX * grid.tileSize;
+        const y = startScreenY + placed.gridY * grid.tileSize;
+
+        // Draw item
+        ctx.save();
+        ctx.font = `${grid.tileSize - 8}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(itemDef.icon, x + grid.tileSize / 2, y + grid.tileSize / 2);
+        ctx.restore();
+    }
+}
 
 // =====================================================
 // INVENTORY SYSTEM
@@ -1632,8 +2143,55 @@ function drawHUD(ctx) {
     ctx.font = '10px Arial';
     ctx.fillText(`${Math.ceil(gameState.playerHealth)}/${gameState.playerMaxHealth}`, hpX + 5, hpY + 11);
 
+    // 2.5 Money Display (below health bar)
+    ctx.save();
+    const moneyX = hpX;
+    const moneyY = hpY + hpHeight + 8;
+
+    // Coin background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.beginPath();
+    ctx.roundRect(moneyX, moneyY, 70, 20, 5);
+    ctx.fill();
+
+    // Coin icon + amount
+    ctx.font = 'bold 12px Arial';
+    ctx.fillStyle = '#ffd700';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`💰 ${gameState.money}`, moneyX + 8, moneyY + 10);
+    ctx.restore();
+
     // 3. Inventory
     Inventory.draw(ctx);
+
+    // 4. Build Button (bottom-right, above inventory)
+    const buildBtnSize = 45;
+    const buildBtnX = offsetX + drawWidth - 60;
+    const buildBtnY = canvas.height - 120;
+
+    ctx.save();
+
+    // Button background
+    ctx.fillStyle = BuildMode.active ? 'rgba(100, 180, 100, 0.8)' : 'rgba(60, 50, 40, 0.8)';
+    ctx.beginPath();
+    ctx.arc(buildBtnX + buildBtnSize / 2, buildBtnY + buildBtnSize / 2, buildBtnSize / 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = BuildMode.active ? '#8f8' : '#8c7b64';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Button icon
+    ctx.font = '24px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('🔨', buildBtnX + buildBtnSize / 2, buildBtnY + buildBtnSize / 2);
+
+    ctx.restore();
+
+    // Store click area for build button
+    window.buildButtonArea = { x: buildBtnX, y: buildBtnY, size: buildBtnSize };
 }
 
 
@@ -1669,6 +2227,12 @@ function gameLoop(currentTime) {
         enemy.update(deltaTime, character.x, character.y);
         enemy.draw(ctx);
     }
+
+    // Draw placed items (build mode)
+    drawPlacedItems(ctx);
+
+    // Draw Build Mode overlay (grid + ghost)
+    BuildMode.draw(ctx);
 
     // Draw HUD (Profile, Health, Inventory)
     // Replaces old health bar code
@@ -1747,7 +2311,9 @@ function drawObjects(ctx) {
         // Only draw if it has an image source
         if (zone.imageSrc) {
             // Determine Y position based on floor
-            const groundY = zone.floor === 2 ? floor2Y : floor1Y;
+            let groundY = floor1Y;
+            if (zone.floor === 2) groundY = floor2Y;
+            else if (zone.floor === 3) groundY = canvas.height * 0.795;
 
             // Calculate screen X (center of the zone)
             const zoneCenterMapX = (zone.xMinMap + zone.xMaxMap) / 2;
@@ -2881,3 +3447,11 @@ gameLoop(performance.now());
 
 console.log('🎮 Game initialized! Click anywhere to move the character.');
 console.log('📝 To add sprites: Extract frames using sprite-extractor.html, then uncomment the loadSprites line in game.js');
+
+// Initialize Game with Demo Resources (for testing build mode)
+setTimeout(() => {
+    Inventory.addItem('Metal', 50, '🔩');
+    Inventory.addItem('Screws', 20, '🔩');
+    Inventory.addItem('Wood', 30, '🪵');
+    console.log('🎁 Demo resources added!');
+}, 1000);
