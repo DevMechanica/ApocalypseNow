@@ -1,0 +1,26 @@
+[gd_scene load_steps=5 format=3 uid="uid://dqx7m5nvp2yde"]
+
+[ext_resource type="Script" path="res://scripts/game/game.gd" id="1_game"]
+[ext_resource type="PackedScene" uid="uid://cpxv5nq8s2yde" path="res://scenes/game/player.tscn" id="2_player"]
+[ext_resource type="PackedScene" uid="uid://cxn5pmt8qwvfd" path="res://scenes/ui/hud.tscn" id="3_hud"]
+[ext_resource type="Texture2D" path="res://assets/maps/bunker_background.png" id="4_map"]
+
+[node name="Game" type="Node2D"]
+script = ExtResource("1_game")
+
+[node name="MapBackground" type="Sprite2D" parent="."]
+position = Vector2(640, 360)
+texture = ExtResource("4_map")
+
+[node name="InteractiveZones" type="Node2D" parent="."]
+
+[node name="Enemies" type="Node2D" parent="."]
+
+[node name="Player" parent="." instance=ExtResource("2_player")]
+position = Vector2(640, 410)
+
+[node name="Camera2D" type="Camera2D" parent="."]
+position = Vector2(640, 360)
+zoom = Vector2(1.2, 1.2)
+
+[node name="HUD" parent="." instance=ExtResource("3_hud")]

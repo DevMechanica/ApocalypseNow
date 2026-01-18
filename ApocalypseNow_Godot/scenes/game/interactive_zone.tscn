@@ -1,0 +1,33 @@
+[gd_scene load_steps=3 format=3 uid="uid://bqr7xvfy4jmmd"]
+
+[ext_resource type="Script" path="res://scripts/interactions/interactive_zone.gd" id="1_zone"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_zone"]
+size = Vector2(60, 80)
+
+[node name="InteractiveZone" type="Area2D"]
+collision_layer = 2
+collision_mask = 1
+script = ExtResource("1_zone")
+zone_name = "default_zone"
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("RectangleShape2D_zone")
+
+[node name="IconLabel" type="Label" parent="."]
+offset_left = -20.0
+offset_top = -50.0
+offset_right = 20.0
+offset_bottom = -20.0
+theme_override_font_sizes/font_size = 24
+text = "📦"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="DebugRect" type="ColorRect" parent="."]
+visible = false
+offset_left = -30.0
+offset_top = -40.0
+offset_right = 30.0
+offset_bottom = 40.0
+color = Color(0, 1, 0, 0.2)
