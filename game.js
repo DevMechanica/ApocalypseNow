@@ -9,6 +9,22 @@ const CONFIG = {
     showWalkableAreas: false // Toggle with 'D' key for debug
 };
 
+// =====================================================
+// DEV MODE - Set to true to unlock all game progression
+// =====================================================
+// When enabled, this will:
+// - Start on the third floor (full map access)
+// - All doors unlocked
+// - Zombie already defeated
+// - Reactor core already inserted
+// - Generator already fixed
+// - All puzzles solved
+// - Start with 10,000 money instead of 100
+// 
+// TO ENABLE: Change the line below from 'false' to 'true'
+const DEV_MODE = true; // Set to true for instant access to all areas
+
+
 // Walkable Areas Configuration
 // Define walkable floor areas as polygons (array of {x, y} points)
 // Add your floor boundaries here - each area is a polygon defined by corner points
@@ -50,16 +66,16 @@ const actionButton = document.getElementById('action-button');
 
 // Game State
 const gameState = {
-    keyFound: false,
+    keyFound: DEV_MODE ? true : false,
     searchedObjects: new Set(),
-    currentLevel: 1,
-    generatorRoomUnlocked: false,
-    generatorFixed: false,
+    currentLevel: DEV_MODE ? 3 : 1,
+    generatorRoomUnlocked: DEV_MODE ? true : false,
+    generatorFixed: DEV_MODE ? true : false,
     isClimbing: false,
-    onSecondFloor: false,
+    onSecondFloor: DEV_MODE ? false : false, // Start on third floor in dev mode
     isClimbing: false,
-    onSecondFloor: false,
-    onThirdFloor: false,
+    onSecondFloor: DEV_MODE ? false : false,
+    onThirdFloor: DEV_MODE ? true : false, // Start on third floor in dev mode
     climbTargetX: null, // Store where to walk after climbing
     // Combat system
     playerHealth: 100,
@@ -69,18 +85,42 @@ const gameState = {
     // Generator Puzzle
     generatorPuzzleActive: false,
     showingPanel: false, // false = generator room view, true = panel view
-    circuitBreakers: [false, false, false, false, false], // false = down, true = up
+    circuitBreakers: DEV_MODE ? [true, true, true, true, true] : [false, false, false, false, false], // All up in dev mode
     correctCombination: [true, true, true, true, true], // All 5 levers UP to win
     // High-quality map frame (used after level 2 reveal)
     mapFrameCanvas: null,
     // Quest flags
-    zombieDefeated: false,
-    reactorCoreInserted: false,
+    zombieDefeated: DEV_MODE ? true : false,
+    reactorCoreInserted: DEV_MODE ? true : false,
     // Placed items (build mode)
     placedItems: [],
     // Currency
-    money: 100
+    money: DEV_MODE ? 10000 : 100,
+    // Hydroponic Grow Box State
+    hydroponicGrowth: 45 // Percentage (0-100)
 };
+
+// Load unlocked map in DEV_MODE
+if (DEV_MODE) {
+    const level3MapImage = new Image();
+    level3MapImage.src = 'Maps/Gemini_Generated_Image_gmqmqogmqmqogmqm.png';
+
+    level3MapImage.onload = () => {
+        const frameCanvas = document.createElement('canvas');
+        frameCanvas.width = level3MapImage.width;
+        frameCanvas.height = level3MapImage.height;
+        const frameCtx = frameCanvas.getContext('2d');
+        frameCtx.drawImage(level3MapImage, 0, 0);
+
+        gameState.mapFrameCanvas = frameCanvas;
+        console.log(`🎮 DEV MODE: Level 3 map loaded (${frameCanvas.width}x${frameCanvas.height})`);
+    };
+
+    level3MapImage.onerror = () => {
+        console.log('⚠️ DEV MODE: Failed to load Level 3 map image');
+    };
+}
+
 
 // =====================================================
 // BUILD MODE SYSTEM
@@ -550,6 +590,38 @@ const INTERACTIVE_ZONES_CONFIG = [
             { icon: '🥫', name: 'Canned Food', count: 1 },
             { icon: '🔩', name: 'Screws', count: 2 },
             { icon: '⚛️', name: 'Reactor Core', count: 1 }
+        ]
+    },
+    {
+        name: 'hydroponic_grow_box',
+        xMinMap: 352,
+        xMaxMap: 390,
+        icon: '🌱',
+        action: 'Search Grow Box',
+        type: 'growbox',
+        floor: 2,
+        searchMessage: '🌱 A hydroponic grow box - contains some fresh vegetables!',
+        imageSrc: 'Objects/Hydroponic Grow Box/Gemini_Generated_Image_24wrgq24wrgq24wr.png',
+        menuImageSrc: 'Menus/Gemini_Generated_Image_di7n7xdi7n7xdi7n.png', // Custom menu popup
+        ui: {
+            // Coordinates relative to the Menu Image size (approx based on visuals)
+            // Progress Bar (Growth)
+            progressBar: {
+                x: 580, y: 280, width: 250, height: 25,
+                backgroundColor: '#333', fillColor: '#9b59b6', label: 'Growth'
+            },
+            // Action Button (Harvest)
+            actionButton: {
+                x: 580, y: 350, width: 250, height: 60,
+                label: 'Harvest', lockedLabel: 'Growing...'
+            }
+        },
+        width: 50,
+        height: 100,
+        yOffset: 110,
+        loot: [
+            { icon: '🥬', name: 'Fresh Lettuce', count: 2 },
+            { icon: '🥕', name: 'Carrot', count: 1 }
         ]
     },
     {
@@ -1542,122 +1614,406 @@ const LootUI = {
     },
 
     draw(ctx) {
-        // Draw flying items (always on top)
+        if (!this.active && this.flyingItems.length === 0) return;
+
+        // Draw flying items
         this.flyingItems.forEach(item => {
+            ctx.shadowColor = 'rgba(0,0,0,0.5)';
+            ctx.shadowBlur = 4;
+            ctx.fillStyle = '#fff';
             ctx.font = '24px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
             ctx.fillText(item.icon, item.currentX, item.currentY);
+            ctx.shadowBlur = 0;
         });
 
         if (!this.active) return;
 
-        // Recalculate position in case of resize using MAP metrics
-        const { drawWidth, offsetX } = getMapDrawMetrics();
-        this.x = offsetX + (drawWidth - this.width) / 2;
-        this.y = CONFIG.canvasHeight - this.height - 100;
-
-        // --- Draw Modal Background ---
+        // Draw Container UI
         ctx.save();
+        ctx.translate(this.x, this.y);
 
-        // Shadow/Glow
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-        ctx.shadowBlur = 20;
-
-        // Main Box - Dark, grungy
-        ctx.fillStyle = '#1a1815'; // Dark brownish gray
-        ctx.fillRect(this.x, this.y, this.width, this.height);
-
-        // Border - Tan/Rusty
-        ctx.strokeStyle = '#8c7b64';
-        ctx.lineWidth = 4;
-        ctx.strokeRect(this.x, this.y, this.width, this.height);
-
-        // Inner "Paper" texture approximation
-        ctx.fillStyle = '#262420';
-        ctx.fillRect(this.x + 10, this.y + 10, this.width - 20, this.height - 20);
-
-        // Header
-        ctx.fillStyle = '#cebba1'; // Old paper color text
-        ctx.font = 'bold 20px Courier New';
-        ctx.textAlign = 'center';
-        ctx.shadowBlur = 0;
-        ctx.fillText('STASH CONTENTS', this.x + this.width / 2, this.y + 35);
-
-        // Divider
+        // Background
+        ctx.fillStyle = 'rgba(20, 18, 15, 0.95)';
+        ctx.strokeStyle = '#8b7d6b';
+        ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.moveTo(this.x + 20, this.y + 45);
-        ctx.lineTo(this.x + this.width - 20, this.y + 45);
-        ctx.strokeStyle = '#5c5244';
-        ctx.lineWidth = 2;
+        ctx.roundRect(0, 0, this.width, this.height, 10);
+        ctx.fill();
         ctx.stroke();
 
-        // --- Draw Items ---
-        ctx.textAlign = 'left';
-        ctx.font = '18px Courier New';
-
-        this.items.forEach((item, index) => {
-            const itemY = this.y + 80 + (index * 40);
-
-            // Icon
-            ctx.font = '24px Arial';
-            ctx.fillText(item.icon, this.x + 30, itemY);
-
-            // Text
-            ctx.font = '18px Courier New';
-            ctx.fillStyle = '#ddd';
-            ctx.fillText(`${item.count}x ${item.name}`, this.x + 70, itemY);
-        });
-
-        // --- Draw "Take All" Button ---
-        const btnHeight = 40;
-        const btnWidth = this.width - 40;
-        const btnX = this.x + 20;
-        const btnY = this.y + this.height - 60;
-
-        // Store button rect for click detection
-        this.takeAllBtn = { x: btnX, y: btnY, width: btnWidth, height: btnHeight };
-
-        ctx.fillStyle = '#4a6b32'; // Muted green
-        ctx.fillRect(btnX, btnY, btnWidth, btnHeight);
-
-        // Button Border
-        ctx.strokeStyle = '#6d8c54';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(btnX, btnY, btnWidth, btnHeight);
-
-        // Button Text
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 16px Courier New';
+        // Title
+        ctx.fillStyle = '#ffd700';
+        ctx.font = 'bold 18px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText('TAKE ALL', btnX + btnWidth / 2, btnY + 25);
+        ctx.fillText(this.zoneName, this.width / 2, 30);
+
+        // Items
+        if (this.items.length === 0) {
+            ctx.fillStyle = '#aaa';
+            ctx.font = 'italic 16px Arial';
+            ctx.fillText('Empty', this.width / 2, this.height / 2);
+        } else {
+            this.items.forEach((item, i) => {
+                const y = 60 + i * 40;
+                ctx.textAlign = 'left';
+                ctx.fillStyle = '#fff';
+                ctx.font = '20px Arial';
+                ctx.fillText(item.icon, 20, y);
+                ctx.font = '16px Arial';
+                ctx.fillText(`${item.count}x ${item.name}`, 55, y);
+            });
+        }
+
+        // Take All Button
+        const btnY = this.height - 40;
+        ctx.fillStyle = '#4a90e2';
+        ctx.beginPath();
+        ctx.roundRect(60, btnY, this.width - 120, 30, 5);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Take All (Space)', this.width / 2, btnY + 20);
 
         ctx.restore();
     },
 
-    handleClick(clickX, clickY) {
+    handleClick(x, y) {
         if (!this.active) return false;
 
-        // Check "Take All" button
-        if (this.takeAllBtn &&
-            clickX >= this.takeAllBtn.x &&
-            clickX <= this.takeAllBtn.x + this.takeAllBtn.width &&
-            clickY >= this.takeAllBtn.y &&
-            clickY <= this.takeAllBtn.y + this.takeAllBtn.height) {
+        // Check Take All button
+        const btnX = this.x + 60;
+        const btnY = this.y + this.height - 40;
+        const btnW = this.width - 120;
+        const btnH = 30;
 
+        if (x >= btnX && x <= btnX + btnW && y >= btnY && y <= btnY + btnH) {
             this.takeAll();
             return true;
         }
 
         // Close if clicked outside
-        if (clickX < this.x || clickX > this.x + this.width ||
-            clickY < this.y || clickY > this.y + this.height) {
+        if (x < this.x || x > this.x + this.width || y < this.y || y > this.y + this.height) {
             this.close();
+            return true; // Consumed click
         }
 
-        return true; // Consume click if UI is open
+        return true; // Consumed click inside UI
     }
 };
+
+// =====================================================
+// POPUP MENU SYSTEM (Detailed Interaction)
+// =====================================================
+const PopupMenu = {
+    active: false,
+    image: null,
+    processedCanvas: null,
+    currentConfig: null,
+    imageSrc: '',
+    loading: false,
+    contentRect: null,
+
+    // Config
+    width: 0,
+    height: 0,
+
+    open(config) {
+        const src = config.menuImageSrc || config;
+
+        if (this.active && this.imageSrc === src) return;
+
+        console.log('📜 Opening popup menu:', src);
+        this.active = true;
+        this.loading = true;
+        this.imageSrc = src;
+        this.currentConfig = config.menuImageSrc ? config : null;
+
+        this.image = new Image();
+        this.image.src = src;
+        this.processedCanvas = null;
+
+        this.image.onload = () => {
+            // Apply Chroma Key logic immediately upon load
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = this.image.width;
+            tempCanvas.height = this.image.height;
+            const tCtx = tempCanvas.getContext('2d');
+            tCtx.drawImage(this.image, 0, 0);
+
+            const imageData = tCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+            const data = imageData.data;
+
+            // 1. Flood Fill Algorithm to remove background starting from corners
+            const width = tempCanvas.width;
+            const height = tempCanvas.height;
+            // x, y pairs for stack 
+            const stack = [0, 0, width - 1, 0, 0, height - 1, width - 1, height - 1];
+            const visited = new Uint8Array(width * height); // Optimization: avoid Set
+
+            const isWhite = (r, g, b) => r > 200 && g > 200 && b > 200;
+
+            while (stack.length > 0) {
+                const y = stack.pop();
+                const x = stack.pop();
+
+                const visitIdx = y * width + x;
+                if (x < 0 || x >= width || y < 0 || y >= height || visited[visitIdx]) continue;
+
+                visited[visitIdx] = 1;
+
+                const i = (y * width + x) * 4;
+                const r = data[i], g = data[i + 1], b = data[i + 2];
+
+                if (isWhite(r, g, b)) {
+                    // Make transparent
+                    data[i + 3] = 0;
+
+                    // Add neighbors
+                    stack.push(x + 1, y);
+                    stack.push(x - 1, y);
+                    stack.push(x, y + 1);
+                    stack.push(x, y - 1);
+                }
+            }
+
+            // 2. Halo Removal Pass (Edge Cleaning)
+            // Iterate a few times to shave off white anti-aliasing edges
+            const iterations = 2;
+            for (let iter = 0; iter < iterations; iter++) {
+                const toRemove = []; // Store indices to remove
+
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        const i = (y * width + x) * 4;
+                        if (data[i + 3] === 0) continue; // Already transparent
+
+                        // Check 4 neighbors for transparency
+                        let touchesTransparent = false;
+                        // Right, Left, Down, Up
+                        const neighbors = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
+
+                        for (const [nx, ny] of neighbors) {
+                            if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                                const ni = (ny * width + nx) * 4;
+                                if (data[ni + 3] === 0) {
+                                    touchesTransparent = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (touchesTransparent) {
+                            // It's an edge pixel. Is it "whitish"?
+                            const r = data[i], g = data[i + 1], b = data[i + 2];
+                            // Use a stricter (lower) threshold for halo pixels than background
+                            // If it's kinda bright and touching transparent, kill it.
+                            if (r > 100 && g > 100 && b > 100) {
+                                toRemove.push(i);
+                            }
+                        }
+                    }
+                }
+
+                // Apply removals for this iteration
+                for (const idx of toRemove) {
+                    data[idx + 3] = 0;
+                }
+            }
+
+            tCtx.putImageData(imageData, 0, 0);
+            this.processedCanvas = tempCanvas;
+
+            this.loading = false;
+            this.width = this.image.width;
+            this.height = this.image.height;
+            console.log(`📜 Popup loaded and processed: ${this.width}x${this.height}`);
+        };
+    },
+
+    close() {
+        console.log('📜 Closing popup menu');
+        this.active = false;
+        this.image = null;
+        this.processedCanvas = null;
+        this.imageSrc = '';
+    },
+
+    draw(ctx) {
+        if (!this.active) return;
+
+        // Draw fullscreen dark overlay (dim backdrop)
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+        if (this.loading) {
+            ctx.fillStyle = '#fff';
+            ctx.font = '20px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('Loading...', ctx.canvas.width / 2, ctx.canvas.height / 2);
+            return;
+        }
+
+        if (this.processedCanvas) {
+            // Configurable vertical crop
+            const verticalTrim = 0.31;
+
+            const sX = 0;
+            const sY = this.processedCanvas.height * verticalTrim;
+            const sWidth = this.processedCanvas.width;
+            const sHeight = this.processedCanvas.height * (1 - (verticalTrim * 2));
+
+            // Draw image centered
+            const scale = Math.min(
+                (ctx.canvas.width * 0.9) / sWidth,
+                (ctx.canvas.height * 0.9) / sHeight,
+                1 // Don't scale up, only down
+            );
+
+            const drawW = sWidth * scale;
+            const drawH = sHeight * scale;
+            const x = (ctx.canvas.width - drawW) / 2;
+            const y = (ctx.canvas.height - drawH) / 2;
+
+            // Draw shadow/glow behind menu
+            ctx.shadowColor = 'rgba(0,0,0,0.8)';
+            ctx.shadowBlur = 20;
+            ctx.drawImage(this.processedCanvas, sX, sY, sWidth, sHeight, x, y, drawW, drawH);
+            ctx.shadowBlur = 0;
+
+            this.contentRect = { x, y, width: drawW, height: drawH, scale: scale, trimOffset: sY };
+
+            // Draw Dynamic UI Widgets
+            if (this.currentConfig && this.currentConfig.ui) {
+                const ui = this.currentConfig.ui;
+
+                // Helper to map image coords to screen coords
+                // screenY = drawY + (imageY - trimOffset) * scale
+                const mapY = (imageY) => y + (imageY - sY) * scale;
+                const mapX = (imageX) => x + imageX * scale;
+
+                // 1. Progress Bar
+                if (ui.progressBar) {
+                    const pb = ui.progressBar;
+                    const pbX = mapX(pb.x);
+                    const pbY = mapY(pb.y);
+                    const pbW = pb.width * scale;
+                    const pbH = pb.height * scale;
+
+                    // Background
+                    ctx.fillStyle = pb.backgroundColor || '#333';
+                    ctx.fillRect(pbX, pbY, pbW, pbH);
+
+                    // Fill (Growth)
+                    const growth = gameState.hydroponicGrowth || 0;
+                    ctx.fillStyle = pb.fillColor || '#0f0';
+                    ctx.fillRect(pbX, pbY, pbW * (growth / 100), pbH);
+
+                    // Label
+                    ctx.fillStyle = '#fff';
+                    ctx.font = `bold ${14 * scale}px Arial`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.shadowColor = '#000';
+                    ctx.shadowBlur = 4;
+                    ctx.fillText(`${pb.label}: ${growth}%`, pbX + pbW / 2, pbY + pbH / 2);
+                    ctx.shadowBlur = 0;
+                }
+
+                // 2. Action Button
+                if (ui.actionButton) {
+                    const btn = ui.actionButton;
+                    const btnX = mapX(btn.x);
+                    const btnY = mapY(btn.y);
+                    const btnW = btn.width * scale;
+                    const btnH = btn.height * scale;
+
+                    const canHarvest = (gameState.hydroponicGrowth || 0) >= 100;
+
+                    // Button Background (Invisible if relying on image, but good for feedback)
+                    if (!canHarvest) {
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                        ctx.fillRect(btnX, btnY, btnW, btnH);
+                    }
+
+                    // Label
+                    const label = canHarvest ? btn.label : (btn.lockedLabel || 'Locked');
+                    ctx.fillStyle = canHarvest ? '#fff' : '#aaa';
+                    ctx.font = `bold ${18 * scale}px Arial`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.shadowColor = '#000';
+                    ctx.shadowBlur = 4;
+                    ctx.fillText(label, btnX + btnW / 2, btnY + btnH / 2);
+                    ctx.shadowBlur = 0;
+                }
+            }
+        }
+    },
+
+    handleClick(x, y) {
+        if (!this.active) return false;
+        if (this.loading) return true;
+
+        if (this.contentRect && this.currentConfig && this.currentConfig.ui) {
+            const ui = this.currentConfig.ui;
+            const r = this.contentRect;
+            const scale = r.scale;
+            const sY = r.trimOffset;
+
+            // Helper to map screen coords back to image coords (roughly)
+            const mapY = (imageY) => r.y + (imageY - sY) * scale;
+            const mapX = (imageX) => r.x + imageX * scale;
+
+            // Check Action Button Click
+            if (ui.actionButton) {
+                const btn = ui.actionButton;
+                const btnX = mapX(btn.x);
+                const btnY = mapY(btn.y);
+                const btnW = btn.width * scale;
+                const btnH = btn.height * scale;
+
+                if (x >= btnX && x <= btnX + btnW && y >= btnY && y <= btnY + btnH) {
+                    const growth = gameState.hydroponicGrowth || 0;
+                    if (growth >= 100) {
+                        // Harvest!
+                        console.log('🌾 Harvesting!');
+                        showMessage('🌾 Harvested Fresh Produce!');
+                        gameState.hydroponicGrowth = 0;
+
+                        // Add loot
+                        if (this.currentConfig.loot) {
+                            // Use LootUI to show animation even if we don't open the full UI
+                            LootUI.active = true;
+                            LootUI.items = [...this.currentConfig.loot];
+                            LootUI.x = r.x + r.width / 2; // Center of popup
+                            LootUI.y = r.y + r.height / 2;
+                            LootUI.takeAll(); // Triggers animation and closes
+                        }
+                    } else {
+                        showMessage('⚠️ Not ready for harvest yet.');
+                    }
+                    return true;
+                }
+            }
+        }
+
+        // If clicked outside the content rect, close
+        if (this.contentRect) {
+            const r = this.contentRect;
+            if (x < r.x || x > r.x + r.width || y < r.y || y > r.y + r.height) {
+                this.close();
+                return true;
+            }
+            return true;
+        }
+
+        return true;
+    }
+};
+
+
 
 // Game State
 const walkableManager = new WalkableAreaManager(WALKABLE_AREAS);
@@ -1676,6 +2032,9 @@ canvas.addEventListener('click', (e) => {
 
     // Check Loot UI first - if it handled the click, stop here
     if (LootUI.handleClick(clickX, clickY)) return;
+
+    // Check PopupMenu - if it handled the click, stop here
+    if (PopupMenu.handleClick(clickX, clickY)) return;
 
     // Check Build Button click
     if (window.buildButtonArea) {
@@ -2165,6 +2524,9 @@ function drawHUD(ctx) {
     // 3. Inventory
     Inventory.draw(ctx);
 
+    // 3.5 Popup Menu (on top of inventory)
+    PopupMenu.draw(ctx);
+
     // 4. Build Button (bottom-right, above inventory)
     const buildBtnSize = 45;
     const buildBtnX = offsetX + drawWidth - 60;
@@ -2244,6 +2606,9 @@ function gameLoop(currentTime) {
     // Update and draw Loot UI
     LootUI.update(deltaTime);
     LootUI.draw(ctx);
+
+    // Draw Popup Menu (Topmost layer)
+    PopupMenu.draw(ctx);
 
     requestAnimationFrame(gameLoop);
 }
@@ -2465,6 +2830,18 @@ actionButton.addEventListener('click', () => {
                 showMessage(currentZone.lockedMessage);
             } else if (currentZone.loot) {
                 LootUI.open(currentZone);
+            }
+        }
+        // Handle Grow Box (Floor 2, Custom Popup)
+        else if (currentZone.type === 'growbox') {
+            if (currentZone.menuImageSrc) {
+                PopupMenu.open(currentZone);
+            } else {
+                // Fallback if no menu image
+                showMessage(currentZone.searchMessage);
+                if (currentZone.loot) {
+                    LootUI.open(currentZone);
+                }
             }
         }
         // Handle Reactor (Floor 2, accepts Reactor Core)
