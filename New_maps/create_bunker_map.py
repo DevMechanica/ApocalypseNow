@@ -36,12 +36,14 @@ def create_bunker_map():
     background_path = r"d:\Work\ApocalypseNow\New_maps\Gemini_Generated_Image_d0xhhqd0xhhqd0xh.png"
     normal_room_path = r"d:\Work\ApocalypseNow\New_maps\EmptyRoomAsset_Office4.png"
     entrance_path = r"d:\Work\ApocalypseNow\New_maps\EmptyGarageAsset_Office3.png"
+    garden_path = r"d:\Work\ApocalypseNow\Objects\Garden\hydroponic_garden.png"
     
     print("Loading images...")
     try:
         background = Image.open(background_path).convert('RGBA')
         normal_room = Image.open(normal_room_path)
         entrance = Image.open(entrance_path)
+        garden = Image.open(garden_path).convert('RGBA')
     except Exception as e:
         print(f"Error loading images: {e}")
         return
@@ -65,6 +67,18 @@ def create_bunker_map():
     new_room_height = int(room_height * scale_factor)
     new_entrance_width = int(entrance_width * scale_factor)
     new_entrance_height = int(entrance_height * scale_factor)
+    
+    # Scale garden to fit inside room (about 20% of room width)
+    # First remove white background from garden
+    garden_transparent = remove_white_background(garden, threshold=240)
+    # Crop to content bounds
+    garden_bbox = garden_transparent.getbbox()
+    if garden_bbox:
+        garden_transparent = garden_transparent.crop(garden_bbox)
+    garden_scale = (new_room_width * 0.20) / garden_transparent.width
+    new_garden_width = int(garden_transparent.width * garden_scale)
+    new_garden_height = int(garden_transparent.height * garden_scale)
+    garden_scaled = garden_transparent.resize((new_garden_width, new_garden_height), Image.Resampling.LANCZOS)
     
     # Resize rooms
     entrance_scaled = entrance_transparent.resize((new_entrance_width, new_entrance_height), Image.Resampling.LANCZOS)
@@ -105,14 +119,28 @@ def create_bunker_map():
     composite.paste(entrance_scaled, (x_offset, y_position), entrance_scaled)
     print(f"Placed entrance at: ({x_offset}, {y_position})")
     
+    # Track room positions for placing objects
+    room_positions = []
+    
     # Place normal rooms below, stacked vertically
     y_position = y_position + new_entrance_height + vertical_padding
     
     for i in range(num_normal_rooms):
         room_x_offset = (bg_width - new_room_width) // 2
         composite.paste(normal_room_scaled, (room_x_offset, int(y_position)), normal_room_scaled)
+        room_positions.append((room_x_offset, int(y_position), new_room_width, new_room_height))
         print(f"Placed normal room {i+1} at: ({room_x_offset}, {int(y_position)})")
         y_position += new_room_height + vertical_padding
+    
+    # Place garden in the second room (index 1)
+    if len(room_positions) > 1:
+        room_x, room_y, room_w, room_h = room_positions[1]
+        # Position garden on the left side of the room, on the floor
+        garden_x = room_x + int(room_w * 0.15)
+        # Floor is at about 85% of room height
+        garden_y = room_y + int(room_h * 0.85) - new_garden_height
+        composite.paste(garden_scaled, (garden_x, garden_y), garden_scaled)
+        print(f"Placed garden at: ({garden_x}, {garden_y})")
     
     # Save the composite image
     output_path = r"d:\Work\ApocalypseNow\New_maps\bunker_map_composite.png"
