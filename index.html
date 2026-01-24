@@ -9,70 +9,32 @@
 </head>
 
 <body>
-    <div id="game-container">
-        <canvas id="game-canvas"></canvas>
-
-        <!-- HUD Layer -->
-        <div id="ui-layer">
-            <!-- Top Bar -->
-            <div id="top-bar">
-                <div class="resource-group">
-                    <div class="resource" id="res-cash">
-                        <img src="ui_icons/icon_cash.png" class="res-icon">
-                        <div class="res-bar">
-                            <div class="res-fill" style="width: 75%; background-color: #4CAF50;"></div>
-                            <span class="res-text">$12,500</span>
-                        </div>
-                    </div>
-                    <div class="resource" id="res-food">
-                        <img src="ui_icons/icon_food.png" class="res-icon">
-                        <div class="res-bar">
-                            <div class="res-fill" style="width: 85%; background-color: #2196F3;"></div>
-                            <span class="res-text">850/1000</span>
-                        </div>
-                    </div>
-                    <div class="resource" id="res-wheat">
-                        <img src="ui_icons/icon_wheat.png" class="res-icon">
-                        <div class="res-bar">
-                            <div class="res-fill" style="width: 47%; background-color: #FFC107;"></div>
-                            <span class="res-text">470/500</span>
-                        </div>
-                    </div>
-                    <div class="resource" id="res-energy">
-                        <img src="ui_icons/icon_energy.png" class="res-icon">
-                        <div class="res-bar">
-                            <div class="res-fill" style="width: 15%; background-color: #8BC34A;"></div>
-                            <span class="res-text">150/200</span>
-                        </div>
-                    </div>
-                </div>
-                <div id="top-right-controls">
-                    <button class="icon-btn" id="pause-btn"><img src="ui_icons/icon_pause.png"></button>
-                </div>
-            </div>
-
-            <!-- Right Sidebar -->
-            <div id="right-sidebar">
-                <button class="circle-btn"><img src="ui_icons/icon_settings.png"></button>
-                <button class="circle-btn"><img src="ui_icons/icon_map.png"></button>
-                <!-- Placeholder for survivors icon if we had it, using settings for now as placeholder -->
-                <button class="circle-btn"><img src="ui_icons/icon_settings.png"></button>
-            </div>
-
-            <!-- Bottom Left Controls -->
-            <div id="bottom-controls">
-                <div id="sub-menus">
-                    <button class="square-btn bg-blue"><img src="ui_icons/icon_settings.png"></button>
-                    <button class="square-btn bg-cyan"><img src="ui_icons/icon_map.png"></button>
-                </div>
-                <button id="build-btn">
-                    <img src="ui_icons/icon_build.png">
-                    <span>BUILD</span>
-                </button>
-            </div>
-        </div>
-    </div>
-    <script src="game.js"></script>
+    <div id="game-container"></div>
+    <!-- We will use a bundler (Parcel/Vite) normally, but since we just did npm install phaser:
+         We might need to use a bundler or point to node_modules/phaser/dist/phaser.js if we aren't using a build step.
+         However, 'import Phaser from "phaser"' implies a module bundler.
+         Given the user environment, I should probably check if they want a bundler.
+         The prompt said "Create package.json and install Phaser".
+         If I don't set up a bundler, 'import' won't work for 'phaer' bare key.
+         I will use a simple importmap or assume a build step later? 
+         Wait, user didn't ask for a bundler, but "main.js" having "import" requires one or native ES modules with paths.
+         Native ES modules need "./node_modules/phaser/dist/phaser.esm.js" or similar.
+         Let's assume we can use Vite or Parcel for ease, OR just use the relative path for now if we want to stay simple.
+         Actually, to keep it simple and effective as requested in "Web Application Development", I should probably use Vite.
+         But I already did `npm init`. I can `npm install vite --save-dev`.
+         Let's try to stick to native modules first if possible, or just add a simple build script.
+         Actually, the easiest way for "ApocalypseNow" is properly a quick Vite setup.
+         But for now, I will point to main.js and we can resolve the build in the Verification step or just use <script type="module" src="src/main.js"></script> and fix imports.
+    -->
+    <!-- Import Map for native ES Module support (Live Server) -->
+    <script type="importmap">
+        {
+            "imports": {
+                "phaser": "./node_modules/phaser/dist/phaser.esm.js"
+            }
+        }
+    </script>
+    <script type="module" src="src/main.js"></script>
 </body>
 
 </html>

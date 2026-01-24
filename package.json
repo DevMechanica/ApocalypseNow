@@ -1,0 +1,24 @@
+{
+  "name": "apocalypsenow",
+  "version": "1.0.0",
+  "description": "",
+  "main": "game.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DevMechanica/ApocalypseNow.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/DevMechanica/ApocalypseNow/issues"
+  },
+  "homepage": "https://github.com/DevMechanica/ApocalypseNow#readme",
+  "dependencies": {
+    "phaser": "^3.90.0"
+  }
+}
