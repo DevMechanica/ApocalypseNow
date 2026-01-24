@@ -33,9 +33,9 @@ def remove_white_background(image, threshold=240):
 
 def create_bunker_map():
     # Load images
-    background_path = r"d:\Work\ApocalypseNow\Maps\New_maps\Gemini_Generated_Image_d0xhhqd0xhhqd0xh.png"
-    normal_room_path = r"d:\Work\ApocalypseNow\Maps\New_maps\Gemini_Generated_Image_9allzy9allzy9all.png"
-    entrance_path = r"d:\Work\ApocalypseNow\Maps\New_maps\Gemini_Generated_Image_q4a9qjq4a9qjq4a9.png"
+    background_path = r"d:\Work\ApocalypseNow\New_maps\Gemini_Generated_Image_d0xhhqd0xhhqd0xh.png"
+    normal_room_path = r"d:\Work\ApocalypseNow\New_maps\EmptyRoomAsset_Office4.png"
+    entrance_path = r"d:\Work\ApocalypseNow\New_maps\EmptyGarageAsset_Office3.png"
     
     print("Loading images...")
     try:
@@ -115,7 +115,7 @@ def create_bunker_map():
         y_position += new_room_height + vertical_padding
     
     # Save the composite image
-    output_path = r"d:\Work\ApocalypseNow\Maps\New_maps\bunker_map_composite.png"
+    output_path = r"d:\Work\ApocalypseNow\New_maps\bunker_map_composite.png"
     composite.save(output_path)
     print(f"\nComposite map saved to: {output_path}")
     print(f"Final image size: {composite.size}")
