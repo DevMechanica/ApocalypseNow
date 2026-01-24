@@ -54,6 +54,40 @@ export class GameScene extends Phaser.Scene {
             right: Phaser.Input.Keyboard.KeyCodes.D
         });
 
+        // RTS Movement Setup
+        this.targetPosition = null;
+        this.selectedUnit = null;
+
+        // 1. Selector Handler (Clicking on the Player)
+        this.player.setInteractive();
+        this.player.on('pointerdown', (pointer) => {
+            if (this.selectedUnit === this.player) {
+                // Deselect
+                this.selectedUnit = null;
+                this.player.clearTint();
+                this.targetPosition = null; // Stop moving
+            } else {
+                // Select
+                this.selectedUnit = this.player;
+                this.player.setTint(0x00ff00); // Visual feedback
+            }
+        });
+
+        // 2. Ground Click Handler (Movement)
+        this.input.on('pointerdown', (pointer, currentlyOver) => {
+            // Block if UI is blocked, OR if we clicked on a game object (like the player itself)
+            if (this.registry.get('uiBlocked') || currentlyOver.length > 0) return;
+
+            // Check bounds
+            const withinBounds = pointer.x >= 0 && pointer.x <= this.cameras.main.width &&
+                pointer.y >= 0 && pointer.y <= this.cameras.main.height;
+
+            // Only move if we have a selected unit and are within bounds
+            if (this.selectedUnit && withinBounds) {
+                this.targetPosition = new Phaser.Math.Vector2(pointer.worldX, pointer.worldY);
+            }
+        });
+
         // 6. Launch UI
         this.scene.launch(CONSTANTS.SCENES.UI);
     }
@@ -61,72 +95,75 @@ export class GameScene extends Phaser.Scene {
     update(time, delta) {
         if (!this.player) return;
 
+        // If not selected, do not move (neither WASD nor RTS)
+        if (this.selectedUnit !== this.player) {
+            this.player.setVelocity(0);
+            return;
+        }
+
         const speed = CONFIG.characterSpeed;
-        const prevVelocity = this.player.body.velocity.clone();
 
-        // Stop any previous movement from the last frame
-        this.player.setVelocity(0);
+        // --- 1. Keyboard Input (Priority) ---
+        let velocityX = 0;
+        let velocityY = 0;
+        let isKeyboardMoving = false;
 
-        // Horizontal movement
+        // Horizontal
         if (this.cursors.left.isDown || this.wasd.left.isDown) {
-            this.player.setVelocityX(-speed);
-            this.player.setFlipX(false); // Left face (Default)
+            velocityX = -speed;
+            this.player.setFlipX(false);
+            isKeyboardMoving = true;
         } else if (this.cursors.right.isDown || this.wasd.right.isDown) {
-            this.player.setVelocityX(speed);
-            this.player.setFlipX(true); // Right face (Flipped)
+            velocityX = speed;
+            this.player.setFlipX(true);
+            isKeyboardMoving = true;
         }
 
-        // Vertical movement
+        // Vertical
         if (this.cursors.up.isDown || this.wasd.up.isDown) {
-            this.player.setVelocityY(-speed);
+            velocityY = -speed;
+            isKeyboardMoving = true;
         } else if (this.cursors.down.isDown || this.wasd.down.isDown) {
-            this.player.setVelocityY(speed);
+            velocityY = speed;
+            isKeyboardMoving = true;
         }
 
-        // Normalize and scale the velocity so that player can't move faster along a diagonal
-        this.player.body.velocity.normalize().scale(speed);
+        // Apply Keyboard Movement
+        if (isKeyboardMoving) {
+            // Cancel RTS movement if player takes manual control
+            this.targetPosition = null;
 
-        // Mobile Touch (Virtual "Joystick" relative to Player position)
-        // Check 1: Pointer is down
-        // Check 2: UI is not blocked
-        // Check 3: Pointer is strictly within the visual camera bounds (ignore clicks on black bars/html background)
-        const pointer = this.input.activePointer;
-        const withinBounds = pointer.x >= 0 && pointer.x <= this.cameras.main.width &&
-            pointer.y >= 0 && pointer.y <= this.cameras.main.height;
+            this.player.setVelocity(velocityX, velocityY);
+            this.player.body.velocity.normalize().scale(speed);
+            return; // Skip RTS logic
+        }
 
-        if (pointer.isDown && !this.registry.get('uiBlocked') && withinBounds) {
+        // --- 2. RTS Movement (Click to Move) ---
+        if (this.targetPosition) {
+            const distance = Phaser.Math.Distance.Between(
+                this.player.x, this.player.y,
+                this.targetPosition.x, this.targetPosition.y
+            );
 
-            // Calculate direction from Player to Pointer in World Space
-            // This fixes the issue where clicking below the player moved them up if they weren't in the exact center of the screen
-            const dx = pointer.worldX - this.player.x;
-            const dy = pointer.worldY - this.player.y;
+            // Tolerance to stop jittering when reaching target (e.g. 4px)
+            if (distance > 4) {
+                // Move towards target
+                this.physics.moveToObject(this.player, this.targetPosition, speed);
 
-            // Simple threshold
-            if (Math.abs(dx) > 30 || Math.abs(dy) > 30) {
-                // Determine primary axis or move in 8 directions
-                // Replicating game.js logic:
-                /*
-                   if (Math.abs(dx) > Math.abs(dy)) {
-                       if (dx > 30) right ...
-                   } else { ... }
-                */
-                // We'll be smoother and just set velocity towards the touch
-                // But mimicking the "Digital" feel of the previous logic:
-                this.player.setVelocity(0); // Reset again
-                if (Math.abs(dx) > Math.abs(dy)) {
-                    if (dx > 30) {
-                        this.player.setVelocityX(speed);
-                        this.player.setFlipX(true);
-                    }
-                    else if (dx < -30) {
-                        this.player.setVelocityX(-speed);
-                        this.player.setFlipX(false);
-                    }
-                } else {
-                    if (dy > 30) this.player.setVelocityY(speed);
-                    else if (dy < -30) this.player.setVelocityY(-speed);
+                // Update Facing Direction
+                if (this.player.body.velocity.x > 0) {
+                    this.player.setFlipX(true);
+                } else if (this.player.body.velocity.x < 0) {
+                    this.player.setFlipX(false);
                 }
+            } else {
+                // Reached target
+                this.player.body.reset(this.player.x, this.player.y);
+                this.targetPosition = null;
             }
+        } else {
+            // Idle
+            this.player.setVelocity(0);
         }
     }
 
