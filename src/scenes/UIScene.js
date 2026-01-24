@@ -14,6 +14,10 @@ export class UIScene extends Phaser.Scene {
 
         this.createResourceBars();
         this.createButtons();
+        this.createBuildPopup();
+        this.createPausePopup();
+        this.createMapPopup();
+        this.createSettingsPopup();
 
         // Listen for updates (if we emit them)
         this.registry.events.on('changedata', this.updateData, this);
@@ -100,17 +104,17 @@ export class UIScene extends Phaser.Scene {
 
         // 1. Pause (Index 0) - Moved from top right
         createSideBtn('icon_pause', 0, () => {
-            console.log('Pause clicked');
+            if (this.pausePopup) this.pausePopup.setVisible(!this.pausePopup.visible);
         });
 
         // 2. Map (Index 1)
         createSideBtn('icon_map', 1, () => {
-            console.log('Map clicked');
+            if (this.mapPopup) this.mapPopup.setVisible(!this.mapPopup.visible);
         });
 
         // 3. Settings (Index 2) - Kept the bottom settings button
         createSideBtn('icon_settings', 2, () => {
-            console.log('Settings clicked');
+            if (this.settingsPopup) this.settingsPopup.setVisible(!this.settingsPopup.visible);
         });
 
         // Build Button (Bottom Right/Center)
@@ -126,7 +130,108 @@ export class UIScene extends Phaser.Scene {
                 duration: 100,
                 yoyo: true
             });
+
+            // Toggle Visibility
+            if (this.buildPopup) {
+                this.buildPopup.setVisible(!this.buildPopup.visible);
+            }
         });
+    }
+
+    createPopupWindow(title) {
+        const width = this.cameras.main.width;
+        const height = this.cameras.main.height;
+
+        // Container
+        const container = this.add.container(0, 0);
+        container.setVisible(false);
+        container.setDepth(100);
+
+        // Background Overlay
+        const overlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.7)
+            .setInteractive();
+
+        overlay.on('pointerdown', () => {
+            container.setVisible(false);
+        });
+        container.add(overlay);
+
+        // Window Background
+        const windowW = width * 0.9;
+        const windowH = height * 0.6;
+        const windowBg = this.add.rectangle(width / 2, height / 2, windowW, windowH, 0x1a2130)
+            .setStrokeStyle(4, 0x4a5a75)
+            .setInteractive();
+        container.add(windowBg);
+
+        // Title
+        const titleText = this.add.text(width / 2, height / 2 - windowH / 2 + 30, title, {
+            fontSize: '24px',
+            fontFamily: 'Fredoka One',
+            color: '#ffffff'
+        }).setOrigin(0.5);
+        container.add(titleText);
+
+        // Close Button
+        const closeBtn = this.add.text(width / 2 + windowW / 2 - 30, height / 2 - windowH / 2 + 30, 'X', {
+            fontSize: '24px',
+            fontFamily: 'Arial',
+            color: '#ff4444',
+            fontWeight: 'bold'
+        }).setOrigin(0.5).setInteractive();
+
+        closeBtn.on('pointerdown', () => {
+            container.setVisible(false);
+        });
+        container.add(closeBtn);
+
+        return { container, windowW, windowH };
+    }
+
+    createBuildPopup() {
+        const { container, windowW, windowH } = this.createPopupWindow('Build Menu');
+        this.buildPopup = container;
+
+        const width = this.cameras.main.width;
+        const height = this.cameras.main.height;
+        const startX = width / 2 - windowW / 2 + 50;
+        const startY = height / 2 - windowH / 2 + 80;
+        const slotSize = 80;
+        const gap = 20;
+
+        for (let i = 0; i < 9; i++) {
+            const row = Math.floor(i / 3);
+            const col = i % 3;
+            const slotX = startX + col * (slotSize + gap);
+            const slotY = startY + row * (slotSize + gap);
+
+            const slot = this.add.rectangle(slotX, slotY, slotSize, slotSize, 0x2a3345)
+                .setOrigin(0, 0)
+                .setStrokeStyle(2, 0x3a455c);
+
+            const placeholder = this.add.text(slotX + slotSize / 2, slotY + slotSize / 2, 'Empty', {
+                fontSize: '12px',
+                color: '#555555'
+            }).setOrigin(0.5);
+
+            this.buildPopup.add(slot);
+            this.buildPopup.add(placeholder);
+        }
+    }
+
+    createPausePopup() {
+        const { container } = this.createPopupWindow('Pause');
+        this.pausePopup = container;
+    }
+
+    createMapPopup() {
+        const { container } = this.createPopupWindow('Map');
+        this.mapPopup = container;
+    }
+
+    createSettingsPopup() {
+        const { container } = this.createPopupWindow('Settings');
+        this.settingsPopup = container;
     }
 
     updateData(parent, key, data) {
