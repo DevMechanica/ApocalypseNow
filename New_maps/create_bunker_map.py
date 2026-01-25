@@ -37,6 +37,7 @@ def create_bunker_map():
     normal_room_path = r"d:\Work\ApocalypseNow\New_maps\EmptyRoomAsset_Office4.png"
     entrance_path = r"d:\Work\ApocalypseNow\New_maps\EmptyGarageAsset_Office3.png"
     garden_path = r"d:\Work\ApocalypseNow\Objects\Garden\hydroponic_garden.png"
+    scrap_machine_path = r"d:\Work\ApocalypseNow\Objects\Machines\metal_scrap_machine.png"
     
     print("Loading images...")
     try:
@@ -44,6 +45,7 @@ def create_bunker_map():
         normal_room = Image.open(normal_room_path)
         entrance = Image.open(entrance_path)
         garden = Image.open(garden_path).convert('RGBA')
+        scrap_machine = Image.open(scrap_machine_path).convert('RGBA')
     except Exception as e:
         print(f"Error loading images: {e}")
         return
@@ -85,7 +87,7 @@ def create_bunker_map():
     normal_room_scaled = normal_room_transparent.resize((new_room_width, new_room_height), Image.Resampling.LANCZOS)
     
     # Check if we need to extend the background
-    vertical_padding = -80  # Overlap rooms more to bring them closer together
+    vertical_padding = -68 # Overlap rooms more to bring them closer together
     num_normal_rooms = 3
     
     total_needed_height = 30 + new_entrance_height + (num_normal_rooms * (new_room_height + vertical_padding)) + 50
@@ -141,6 +143,23 @@ def create_bunker_map():
         garden_y = room_y + int(room_h * 0.85) - new_garden_height
         composite.paste(garden_scaled, (garden_x, garden_y), garden_scaled)
         print(f"Placed garden at: ({garden_x}, {garden_y})")
+    
+    # Scale and place scrap machine in the third room (index 2)
+    scrap_bbox = scrap_machine.getbbox()
+    if scrap_bbox:
+        scrap_machine = scrap_machine.crop(scrap_bbox)
+    scrap_scale = (new_room_width * 0.40) / scrap_machine.width  # Smaller scale
+    new_scrap_width = int(scrap_machine.width * scrap_scale)
+    new_scrap_height = int(scrap_machine.height * scrap_scale)
+    scrap_scaled = scrap_machine.resize((new_scrap_width, new_scrap_height), Image.Resampling.LANCZOS)
+    
+    if len(room_positions) > 2:
+        room_x, room_y, room_w, room_h = room_positions[2]
+        # Position on the right side of the room
+        scrap_x = room_x + int(room_w * 0.10)
+        scrap_y = room_y + int(room_h * 0.80) - new_scrap_height
+        composite.paste(scrap_scaled, (scrap_x, scrap_y), scrap_scaled)
+        print(f"Placed scrap machine at: ({scrap_x}, {scrap_y})")
     
     # Save the composite image
     output_path = r"d:\Work\ApocalypseNow\New_maps\bunker_map_composite.png"
