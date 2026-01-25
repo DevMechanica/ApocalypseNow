@@ -33,7 +33,7 @@ def remove_white_background(image, threshold=240):
 
 def create_bunker_map():
     # Load images
-    background_path = r"d:\Work\ApocalypseNow\New_maps\Gemini_Generated_Image_d0xhhqd0xhhqd0xh.png"
+    background_path = r"d:\Work\ApocalypseNow\New_maps\Gemini_Generated_Image_i7kl4ci7kl4ci7kl.png"
     normal_room_path = r"d:\Work\ApocalypseNow\New_maps\EmptyRoomAsset_Office4.png"
     entrance_path = r"d:\Work\ApocalypseNow\New_maps\EmptyGarageAsset_Office3.png"
     garden_path = r"d:\Work\ApocalypseNow\Objects\Garden\hydroponic_garden.png"
@@ -85,7 +85,7 @@ def create_bunker_map():
     normal_room_scaled = normal_room_transparent.resize((new_room_width, new_room_height), Image.Resampling.LANCZOS)
     
     # Check if we need to extend the background
-    vertical_padding = -60  # Reduced padding to overlap slightly/connect rooms
+    vertical_padding = -80  # Overlap rooms more to bring them closer together
     num_normal_rooms = 3
     
     total_needed_height = 30 + new_entrance_height + (num_normal_rooms * (new_room_height + vertical_padding)) + 50
@@ -115,7 +115,7 @@ def create_bunker_map():
     x_offset = (bg_width - new_entrance_width) // 2
     
     # Place entrance at the top with some padding
-    y_position = 30
+    y_position = 100  # Push rooms down from top
     composite.paste(entrance_scaled, (x_offset, y_position), entrance_scaled)
     print(f"Placed entrance at: ({x_offset}, {y_position})")
     
