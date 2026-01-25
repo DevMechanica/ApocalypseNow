@@ -50,8 +50,10 @@ export class PreloadScene extends Phaser.Scene {
         // Assuming relative path from index.html (root) which is where Phaser runs from
         this.load.image('icon_cash', 'ui_icons/icon_cash.png');
         this.load.image('icon_food', 'ui_icons/icon_food.png');
+        this.load.image('icon_water', 'ui_icons/icon_water.png');
         this.load.image('icon_wheat', 'ui_icons/icon_wheat.png');
         this.load.image('icon_energy', 'ui_icons/icon_energy.png');
+        this.load.image('icon_materials', 'ui_icons/icon_materials.png');
         this.load.image('icon_pause', 'ui_icons/icon_pause.png');
         this.load.image('icon_settings', 'ui_icons/icon_settings.png');
         this.load.image('icon_map', 'ui_icons/icon_map.png');

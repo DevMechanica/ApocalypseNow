@@ -1,5 +1,6 @@
 import * as Phaser from 'phaser';
 import { CONSTANTS, CONFIG } from '../config.js';
+import { EconomyManager } from '../economy.js';
 
 export class GameScene extends Phaser.Scene {
     constructor() {
@@ -7,43 +8,60 @@ export class GameScene extends Phaser.Scene {
     }
 
     create() {
-        // 1. Setup World/Map
+        // Initialize Economy Manager
+        this.economy = new EconomyManager(this);
+        this.economy.init();
+
+        // 1. Setup World/Map - Scale to fit screen (show full width)
         const map = this.add.image(0, 0, 'map').setOrigin(0, 0);
 
-        // Based on create_bunker_map.py, the rooms are scaled to 90% of the background width and centered.
-        // We set the physics bounds to this inner 'building' area to prevent walking on the surrounding earth/background.
-        const mapW = map.width;
-        const mapH = map.height;
-        const buildingWidth = mapW * 0.90;
-        const buildingX = (mapW - buildingWidth) / 2;
+        // Scale map to fit the viewport (prioritize showing full width)
+        const screenWidth = this.cameras.main.width;
+        const screenHeight = this.cameras.main.height;
+        const scaleX = screenWidth / map.width;
+        const scaleY = screenHeight / map.height;
+        const scale = Math.min(scaleX, scaleY);  // FIT mode - show entire map
 
-        // Recalculated based on exact logic and dimensions:
-        // BgWidth: 832. RoomWidth: 1696. Scale: 0.4415. ScldHeight: 268.
-        // Entrance(1) + Rooms(3). Padding -60. Start 30.
-        // Bottom = 30 + 268 + 3*(268-60) = 922.
-        // Map Height is 1248. So building ends at 922.
+        map.setScale(scale);
 
-        const buildingY = 30;
-        const buildingHeight = 892; // 922 - 30
+        // Calculate scaled dimensions
+        const scaledMapW = map.width * scale;
+        const scaledMapH = map.height * scale;
+
+        // Center the map on screen
+        const offsetX = (screenWidth - scaledMapW) / 2;
+        const offsetY = (screenHeight - scaledMapH) / 2;
+        map.setPosition(offsetX, offsetY);
+
+        // Building bounds (90% of map width, centered)
+        const buildingWidthRatio = 0.90;
+        const buildingX = offsetX + (scaledMapW * (1 - buildingWidthRatio) / 2);
+        const buildingWidth = scaledMapW * buildingWidthRatio;
+
+        // Vertical bounds based on room positions
+        const buildingY = offsetY + (30 * scale);
+        const buildingHeight = 892 * scale;
 
         this.physics.world.setBounds(buildingX, buildingY, buildingWidth, buildingHeight);
+
 
         // 2. Process Player Texture (Chroma Key)
         this.createPlayerTexture();
 
-        // 3. Create Player
-        // Position roughly where it was: center of width, 80y (scaled) or similar.
-        // Game.js: x = mapWidth/2 - width/2, y = 80
-        const startX = map.width / 2;
-        const startY = 150; // Approximated
+        // 3. Create Player - Position in center of screen
+        const startX = screenWidth / 2;
+        const startY = buildingY + (150 * scale);  // Start near top of building area
 
         this.player = this.physics.add.sprite(startX, startY, 'player_processed');
-        this.player.setScale(CONFIG.characterScale);
+        this.player.setScale(CONFIG.characterScale * scale);  // Scale player with map
         this.player.setCollideWorldBounds(true);
 
-        // 4. Camera
-        this.cameras.main.setBounds(0, 0, map.width, map.height);
-        this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+        // Store scale for other calculations
+        this.mapScale = scale;
+        this.mapOffset = { x: offsetX, y: offsetY };
+
+        // 4. Camera - Static view (no follow), full screen bounds
+        this.cameras.main.setBounds(0, 0, screenWidth, screenHeight);
 
         // 5. Input Setup
         this.cursors = this.input.keyboard.createCursorKeys();
