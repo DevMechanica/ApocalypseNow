@@ -39,39 +39,47 @@ export class UIScene extends Phaser.Scene {
     }
 
     createResourceBars() {
-        const padding = 8;
-        let x = padding;
-        const y = padding;
-        const barWidth = 60;
-        const barHeight = 25;
-        const spacing = 105;
+        const screenWidth = this.cameras.main.width;
 
-        // Resource keys in display order
+        // Responsive sizing based on screen width
+        const padding = Math.max(4, screenWidth * 0.01);
+        const iconSize = Math.max(16, Math.floor(screenWidth * 0.035));
+        const barWidth = Math.max(35, Math.floor(screenWidth * 0.07));
+        const barHeight = Math.max(16, Math.floor(screenWidth * 0.03));
+        const fontSize = Math.max(9, Math.floor(screenWidth * 0.018));
+
+        // Calculate spacing to fit all 5 resources on screen
         const resourceKeys = ['caps', 'food', 'water', 'power', 'materials'];
+        const totalResourceWidth = iconSize + barWidth + padding;
+        const availableWidth = screenWidth - (padding * 2);
+        const spacing = Math.floor(availableWidth / resourceKeys.length);
+
+        const y = padding;
 
         resourceKeys.forEach((key, index) => {
             const resDef = ECONOMY.RESOURCES[key];
-            const containerX = x + (index * spacing);
+            const containerX = padding + (index * spacing);
 
             // Icon
-            const icon = this.add.image(containerX + 12, y + 12, resDef.icon)
-                .setDisplaySize(24, 24);
+            const icon = this.add.image(containerX + iconSize / 2, y + iconSize / 2, resDef.icon)
+                .setDisplaySize(iconSize, iconSize);
 
             // Bar Background
-            this.add.rectangle(containerX + 28, y, barWidth, barHeight, 0x333333).setOrigin(0, 0);
+            this.add.rectangle(containerX + iconSize + 4, y, barWidth, barHeight, 0x333333).setOrigin(0, 0);
 
             // Bar Fill
-            const fill = this.add.rectangle(containerX + 28, y, barWidth, barHeight, resDef.color).setOrigin(0, 0);
+            const fill = this.add.rectangle(containerX + iconSize + 4, y, barWidth, barHeight, resDef.color).setOrigin(0, 0);
 
             // Text
-            const text = this.add.text(containerX + 32, y + 5, '', {
-                fontSize: '11px',
+            const text = this.add.text(containerX + iconSize + 6, y + 2, '', {
+                fontSize: `${fontSize}px`,
                 fontFamily: 'Arial',
                 color: '#ffffff'
             });
 
-            // Store references
+            // Store references with max width for updates
             this['bar_' + key] = fill;
+            this['bar_' + key + '_maxWidth'] = barWidth;
             this['text_' + key] = text;
         });
 
@@ -83,12 +91,15 @@ export class UIScene extends Phaser.Scene {
         const width = this.cameras.main.width;
         const height = this.cameras.main.height;
 
-        const sideY = 120;
-        const btnSize = 45;
-        const spacing = 55;
+        // Responsive sizing
+        const btnSize = Math.max(30, Math.floor(width * 0.08));
+        const sideMargin = Math.max(20, Math.floor(width * 0.05));
+        const sideY = Math.max(80, Math.floor(height * 0.15));
+        const spacing = Math.max(40, Math.floor(height * 0.08));
+        const fontSize = Math.max(12, Math.floor(width * 0.025));
 
         const createSideBtn = (icon, index, callback) => {
-            const btn = this.add.image(width - 35, sideY + (index * spacing), icon)
+            const btn = this.add.image(width - sideMargin, sideY + (index * spacing), icon)
                 .setInteractive()
                 .setDisplaySize(btnSize, btnSize);
 
@@ -111,15 +122,17 @@ export class UIScene extends Phaser.Scene {
             if (this.settingsPopup) this.settingsPopup.setVisible(!this.settingsPopup.visible);
         });
 
-        // Build Button
-        const buildBtn = this.add.image(width - 70, height - 70, 'icon_build')
+        // Build Button - responsive size
+        const buildBtnSize = Math.max(50, Math.floor(width * 0.12));
+        const buildMargin = Math.max(40, Math.floor(width * 0.08));
+        const buildBtn = this.add.image(width - buildMargin, height - buildMargin, 'icon_build')
             .setInteractive()
-            .setDisplaySize(70, 70);
+            .setDisplaySize(buildBtnSize, buildBtnSize);
 
         buildBtn.on('pointerdown', () => {
             this.tweens.add({
                 targets: buildBtn,
-                y: height - 75,
+                y: height - buildMargin - 5,
                 duration: 100,
                 yoyo: true
             });
@@ -129,9 +142,10 @@ export class UIScene extends Phaser.Scene {
             }
         });
 
-        // Floor indicator
-        this.floorText = this.add.text(10, height - 30, 'Floor: 1', {
-            fontSize: '16px',
+        // Floor indicator - responsive positioning
+        const bottomPadding = Math.max(20, Math.floor(height * 0.03));
+        this.floorText = this.add.text(10, height - bottomPadding, 'Floor: 1', {
+            fontSize: `${fontSize}px`,
             fontFamily: 'Arial',
             color: '#ffffff',
             stroke: '#000000',
@@ -139,8 +153,8 @@ export class UIScene extends Phaser.Scene {
         });
 
         // Survivor count
-        this.survivorText = this.add.text(10, height - 55, 'Survivors: 0/4', {
-            fontSize: '14px',
+        this.survivorText = this.add.text(10, height - bottomPadding - (fontSize * 1.5), 'Survivors: 0/4', {
+            fontSize: `${Math.floor(fontSize * 0.9)}px`,
             fontFamily: 'Arial',
             color: '#88ff88',
             stroke: '#000000',
@@ -323,6 +337,7 @@ export class UIScene extends Phaser.Scene {
     updateResourceUI(key, state) {
         const bar = this['bar_' + key];
         const text = this['text_' + key];
+        const maxWidth = this['bar_' + key + '_maxWidth'] || 60;
 
         if (!bar || !text || !state) return;
 
@@ -338,12 +353,12 @@ export class UIScene extends Phaser.Scene {
             text.setText(`${current}`);
         }
 
-        // Update bar width (max 60px)
+        // Update bar width (use stored maxWidth)
         if (max > 0) {
             const percent = Phaser.Math.Clamp(current / max, 0, 1);
-            bar.width = 60 * percent;
+            bar.width = maxWidth * percent;
         } else {
-            bar.width = 60;
+            bar.width = maxWidth;
         }
     }
 }
