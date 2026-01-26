@@ -18,6 +18,7 @@ export class UIScene extends Phaser.Scene {
         this.createPausePopup();
         this.createMapPopup();
         this.createSettingsPopup();
+        this.createTooltip();
 
         // Listen for economy updates
         const gameScene = this.scene.get(CONSTANTS.SCENES.GAME);
@@ -62,7 +63,20 @@ export class UIScene extends Phaser.Scene {
 
             // Icon
             const icon = this.add.image(containerX + iconSize / 2, y + iconSize / 2, resDef.icon)
-                .setDisplaySize(iconSize, iconSize);
+                .setDisplaySize(iconSize, iconSize)
+                .setInteractive();
+
+            icon.on('pointerover', () => {
+                this.showTooltip(
+                    containerX,
+                    y + iconSize + 5,
+                    `${resDef.name}: ${resDef.description}`
+                );
+            });
+
+            icon.on('pointerout', () => {
+                this.hideTooltip();
+            });
 
             // Bar Background
             this.add.rectangle(containerX + iconSize + 4, y, barWidth, barHeight, 0x333333).setOrigin(0, 0);
@@ -359,6 +373,56 @@ export class UIScene extends Phaser.Scene {
             bar.width = maxWidth * percent;
         } else {
             bar.width = maxWidth;
+        }
+    }
+
+    createTooltip() {
+        this.tooltipContainer = this.add.container(0, 0);
+        this.tooltipContainer.setDepth(200);
+        this.tooltipContainer.setVisible(false);
+
+        const bg = this.add.rectangle(0, 0, 100, 40, 0x000000, 0.9)
+            .setStrokeStyle(1, 0xffffff)
+            .setOrigin(0, 0);
+
+        const text = this.add.text(5, 5, '', {
+            fontSize: '12px',
+            fontFamily: 'Arial',
+            color: '#ffffff',
+            wordWrap: { width: 180 }
+        });
+
+        this.tooltipContainer.add([bg, text]);
+        this.tooltipBg = bg;
+        this.tooltipText = text;
+    }
+
+    showTooltip(x, y, text) {
+        if (!this.tooltipContainer) return;
+
+        this.tooltipText.setText(text);
+        const bounds = this.tooltipText.getBounds();
+        const width = bounds.width + 10;
+        const height = bounds.height + 10;
+
+        this.tooltipBg.setSize(width, height);
+
+        // Ensure tooltip doesn't go off screen
+        let finalX = x;
+        let finalY = y;
+
+        const screenWidth = this.cameras.main.width;
+        if (finalX + width > screenWidth) {
+            finalX = screenWidth - width - 5;
+        }
+
+        this.tooltipContainer.setPosition(finalX, finalY);
+        this.tooltipContainer.setVisible(true);
+    }
+
+    hideTooltip() {
+        if (this.tooltipContainer) {
+            this.tooltipContainer.setVisible(false);
         }
     }
 }

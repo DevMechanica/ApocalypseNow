@@ -39,7 +39,7 @@ export const ECONOMY = {
             color: 0x4CAF50,
             initial: 500,
             max: 0,  // 0 = unlimited
-            description: 'Currency for trading and hiring'
+            description: 'Currency for trading and upgrades'
         },
         food: {
             name: 'Food',
@@ -47,7 +47,7 @@ export const ECONOMY = {
             color: 0x2196F3,
             initial: 100,
             max: 500,
-            description: 'Keeps survivors alive'
+            description: 'Essential for survivor health'
         },
         water: {
             name: 'Water',
@@ -55,7 +55,7 @@ export const ECONOMY = {
             color: 0x00BCD4,
             initial: 100,
             max: 500,
-            description: 'Essential for survival and hydroponics'
+            description: 'Required for hydroponics and drinking'
         },
         power: {
             name: 'Power',
@@ -63,7 +63,7 @@ export const ECONOMY = {
             color: 0xFFC107,
             initial: 50,
             max: 200,
-            description: 'Powers all rooms and machines'
+            description: 'Keeps the lights and machines running'
         },
         materials: {
             name: 'Materials',
