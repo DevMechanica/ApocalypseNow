@@ -8,6 +8,7 @@ Script to create a composite bunker map by:
 
 from PIL import Image
 import numpy as np
+import os
 
 def remove_white_background(image, threshold=240):
     """
@@ -33,11 +34,14 @@ def remove_white_background(image, threshold=240):
 
 def create_bunker_map():
     # Load images
-    background_path = r"d:\Work\ApocalypseNow\New_maps\Gemini_Generated_Image_i7kl4ci7kl4ci7kl.png"
-    normal_room_path = r"d:\Work\ApocalypseNow\New_maps\EmptyRoomAsset_Office4.png"
-    entrance_path = r"d:\Work\ApocalypseNow\New_maps\EmptyGarageAsset_Office3.png"
-    garden_path = r"d:\Work\ApocalypseNow\Objects\Garden\hydroponic_garden.png"
-    scrap_machine_path = r"d:\Work\ApocalypseNow\Objects\Machines\metal_scrap_machine.png"
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+    
+    background_path = os.path.join(script_dir, "Gemini_Generated_Image_i7kl4ci7kl4ci7kl.png")
+    normal_room_path = os.path.join(script_dir, "EmptyRoomAsset_Office4.png")
+    entrance_path = os.path.join(script_dir, "EmptyGarageAsset_Office3.png")
+    garden_path = os.path.join(project_root, "Objects", "Garden", "hydroponic_garden.png")
+    scrap_machine_path = os.path.join(project_root, "Objects", "Machines", "metal_scrap_machine.png")
     
     print("Loading images...")
     try:
@@ -139,8 +143,8 @@ def create_bunker_map():
         room_x, room_y, room_w, room_h = room_positions[1]
         # Position garden on the left side of the room, on the floor
         garden_x = room_x + int(room_w * 0.15)
-        # Floor is at about 85% of room height
-        garden_y = room_y + int(room_h * 0.85) - new_garden_height
+        # Floor is at about 75% of room height (moved up from 85%)
+        garden_y = room_y + int(room_h * 0.79) - new_garden_height
         composite.paste(garden_scaled, (garden_x, garden_y), garden_scaled)
         print(f"Placed garden at: ({garden_x}, {garden_y})")
     
@@ -162,7 +166,7 @@ def create_bunker_map():
         print(f"Placed scrap machine at: ({scrap_x}, {scrap_y})")
     
     # Save the composite image
-    output_path = r"d:\Work\ApocalypseNow\New_maps\bunker_map_composite.png"
+    output_path = os.path.join(script_dir, "bunker_map_composite.png")
     composite.save(output_path)
     print(f"\nComposite map saved to: {output_path}")
     print(f"Final image size: {composite.size}")
