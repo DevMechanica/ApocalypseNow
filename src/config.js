@@ -110,6 +110,7 @@ export const ECONOMY = {
         hydroponic_garden: {
             name: 'Hydroponic Garden',
             category: 'production',
+            width: 2,
             bestStat: 'agility',
             buildCost: { materials: 100, caps: 50 },
             powerCost: 5,
@@ -140,6 +141,7 @@ export const ECONOMY = {
         salvage_station: {
             name: 'Salvage Station',
             category: 'production',
+            width: 4,
             bestStat: 'agility',
             buildCost: { materials: 60, caps: 30 },
             powerCost: 3,
@@ -259,7 +261,7 @@ export const ECONOMY = {
     // -------------------------------------------------------------------------
     FLOOR: {
         maxFloors: 50,
-        slotsPerFloor: 3,
+        slotsPerFloor: 8,
         excavationBaseCost: 100,
         excavationMultiplier: 1.5,  // Cost = base * (multiplier ^ floor)
         bossFloors: [10, 20, 30, 40, 50]

@@ -32,6 +32,63 @@ def remove_white_background(image, threshold=240):
     
     return Image.fromarray(data)
 
+def place_object(composite, room_pos, asset_image, start_slot, slot_width_slots, asset_name="Object"):
+    """
+    Places an object in a room based on the standardized grid system.
+    
+    Args:
+        composite: The main composite image.
+        room_pos: Tuple (x, y, w, h) of the target room.
+        asset_image: The PIL Image of the asset to place.
+        start_slot: The starting slot index (0-7).
+        slot_width_slots: How many slots wide the object is.
+        asset_name: Name for logging.
+    """
+    room_x, room_y, room_w, room_h = room_pos
+    
+    # Standardized Constants based on user preference
+    ROOM_SLOTS = 8
+    SIZE_PADDING_RATIO = 0.15  # For width calculation
+    POS_PADDING_RATIO = 0.13   # For x-offset position
+    Y_OFFSET_FACTOR = 0.77     # Vertical position on floor
+    
+    # Calculate usable width and slot size based on size padding
+    # Note: We use the SIZE padding for calculating the base slot width to maintain size consistency
+    usable_width_size = room_w * (1 - (SIZE_PADDING_RATIO * 2))
+    base_slot_width = usable_width_size / ROOM_SLOTS
+    
+    # Calculate target width for the object
+    # We use 0.95 scale factor to leave a small gap between objects
+    target_width = int(base_slot_width * slot_width_slots * 0.95)
+    
+    # Scale object
+    scale = target_width / asset_image.width
+    new_width = int(asset_image.width * scale)
+    new_height = int(asset_image.height * scale)
+    asset_scaled = asset_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+    
+    # Calculate X Position
+    # We use POS padding for the starting offset
+    x_start_offset = room_w * POS_PADDING_RATIO
+    
+    # Calculate global X position
+    # The grid starts at room_x + x_start_offset
+    # Logic: Start at offset -> move N slots over. 
+    # To be consistent with "flush" logic, the slot width for POSITIONING might need to match or be independent.
+    # Here we use the same base_slot_width for spacing steps.
+    slot_x_start = room_x + x_start_offset + (start_slot * base_slot_width)
+    
+    # Center the object within its assigned slots
+    center_offset = ((base_slot_width * slot_width_slots) - new_width) / 2
+    final_x = int(slot_x_start + center_offset)
+    
+    # Calculate Y Position
+    final_y = room_y + int(room_h * Y_OFFSET_FACTOR) - new_height
+    
+    composite.paste(asset_scaled, (final_x, final_y), asset_scaled)
+    print(f"Placed {asset_name} ({slot_width_slots} slots) at: ({final_x}, {final_y})")
+
+
 def create_bunker_map():
     # Load images
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -74,17 +131,17 @@ def create_bunker_map():
     new_entrance_width = int(entrance_width * scale_factor)
     new_entrance_height = int(entrance_height * scale_factor)
     
-    # Scale garden to fit inside room (about 20% of room width)
-    # First remove white background from garden
+    # Crop Object transparent backgrounds
     garden_transparent = remove_white_background(garden, threshold=240)
-    # Crop to content bounds
-    garden_bbox = garden_transparent.getbbox()
-    if garden_bbox:
-        garden_transparent = garden_transparent.crop(garden_bbox)
-    garden_scale = (new_room_width * 0.20) / garden_transparent.width
-    new_garden_width = int(garden_transparent.width * garden_scale)
-    new_garden_height = int(garden_transparent.height * garden_scale)
-    garden_scaled = garden_transparent.resize((new_garden_width, new_garden_height), Image.Resampling.LANCZOS)
+    if garden_transparent.getbbox():
+        garden_transparent = garden_transparent.crop(garden_transparent.getbbox())
+        
+    scrap_machine_transparent = scrap_machine # Already RGBA?
+    # Actually scrap machine was loaded as RGBA but might need white removal or crop?
+    # Original code just did crop. Let's assume it has transparency or needs cropping.
+    # Original code: scrap_machine.getbbox() -> crop.
+    if scrap_machine.getbbox():
+        scrap_machine_transparent = scrap_machine.crop(scrap_machine.getbbox())
     
     # Resize rooms
     entrance_scaled = entrance_transparent.resize((new_entrance_width, new_entrance_height), Image.Resampling.LANCZOS)
@@ -138,32 +195,32 @@ def create_bunker_map():
         print(f"Placed normal room {i+1} at: ({room_x_offset}, {int(y_position)})")
         y_position += new_room_height + vertical_padding
     
-    # Place garden in the second room (index 1)
+    # --- ASSET PLACEMENT ---
+    
+    # Place 4 gardens in Room 2 (Index 1)
     if len(room_positions) > 1:
-        room_x, room_y, room_w, room_h = room_positions[1]
-        # Position garden on the left side of the room, on the floor
-        garden_x = room_x + int(room_w * 0.12)
-        # Floor is at about 75% of room height (moved up from 85%)
-        garden_y = room_y + int(room_h * 0.79) - new_garden_height
-        composite.paste(garden_scaled, (garden_x, garden_y), garden_scaled)
-        print(f"Placed garden at: ({garden_x}, {garden_y})")
-    
-    # Scale and place scrap machine in the third room (index 2)
-    scrap_bbox = scrap_machine.getbbox()
-    if scrap_bbox:
-        scrap_machine = scrap_machine.crop(scrap_bbox)
-    scrap_scale = (new_room_width * 0.40) / scrap_machine.width  # Smaller scale
-    new_scrap_width = int(scrap_machine.width * scrap_scale)
-    new_scrap_height = int(scrap_machine.height * scrap_scale)
-    scrap_scaled = scrap_machine.resize((new_scrap_width, new_scrap_height), Image.Resampling.LANCZOS)
-    
+        # Garden is 2 slots wide
+        for i in range(4):
+            place_object(
+                composite=composite,
+                room_pos=room_positions[1],
+                asset_image=garden_transparent,
+                start_slot=i*2,  # 0, 2, 4, 6
+                slot_width_slots=2,
+                asset_name=f"Garden {i+1}"
+            )
+            
+    # Place scrap machine in Room 3 (Index 2)
     if len(room_positions) > 2:
-        room_x, room_y, room_w, room_h = room_positions[2]
-        # Position on the right side of the room
-        scrap_x = room_x + int(room_w * 0.10)
-        scrap_y = room_y + int(room_h * 0.80) - new_scrap_height
-        composite.paste(scrap_scaled, (scrap_x, scrap_y), scrap_scaled)
-        print(f"Placed scrap machine at: ({scrap_x}, {scrap_y})")
+        # Machine is 4 slots wide, placing at slot 2 (centered-ish)
+        place_object(
+            composite=composite,
+            room_pos=room_positions[2],
+            asset_image=scrap_machine_transparent,
+            start_slot=0,
+            slot_width_slots=4,
+            asset_name="Scrap Machine"
+        )
     
     # Save the composite image
     output_path = os.path.join(script_dir, "bunker_map_composite.png")
