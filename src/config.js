@@ -7,8 +7,8 @@ export const CONFIG = {
     mapPath: 'New_maps/bunker_map_composite.png',
 
     // Character settings
-    characterPath: 'characters/Normal.png',
-    characterScale: 0.19, // Larger for Zero City-style 60-70% room height
+    characterPath: 'characters/Normal_optimized.png',
+    characterScale: 0.50, // Resized asset (324px) scaled to 50% = ~162px (crisp)
     characterSpeed: 160,
 
     // Display

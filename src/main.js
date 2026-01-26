@@ -9,10 +9,10 @@ const config = {
     parent: 'game-container',
     backgroundColor: '#0a1428',
     scale: {
-        mode: Phaser.Scale.EXPAND,  // Expand to fill container
+        mode: Phaser.Scale.FIT,  // Fit to screen while maintaining aspect ratio
         autoCenter: Phaser.Scale.CENTER_BOTH,
-        width: window.innerWidth,
-        height: window.innerHeight
+        width: 720,   // HD Portrait Width
+        height: 1280  // HD Portrait Height
     },
     physics: {
         default: 'arcade',
@@ -27,6 +27,4 @@ const config = {
 const game = new Phaser.Game(config);
 
 // Handle resize
-window.addEventListener('resize', () => {
-    game.scale.resize(window.innerWidth, window.innerHeight);
-});
+
