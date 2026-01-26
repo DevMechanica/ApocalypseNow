@@ -196,6 +196,18 @@ def create_bunker_map():
         y_position += new_room_height + vertical_padding
     
     # --- ASSET PLACEMENT ---
+
+    # Place 4 gardens in Room 1 (Index 0) - "First Floor"
+    if len(room_positions) > 0:
+        for i in range(4):
+            place_object(
+                composite=composite,
+                room_pos=room_positions[0],
+                asset_image=garden_transparent,
+                start_slot=i*2,  # 0, 2, 4, 6
+                slot_width_slots=2,
+                asset_name=f"Garden {i+1} (Floor 1)"
+            )
     
     # Place 4 gardens in Room 2 (Index 1)
     if len(room_positions) > 1:
