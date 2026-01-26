@@ -200,7 +200,7 @@ def create_bunker_map():
     # Place 4 gardens in Room 2 (Index 1)
     if len(room_positions) > 1:
         # Garden is 2 slots wide
-        for i in range(4):
+        for i in range(2):
             place_object(
                 composite=composite,
                 room_pos=room_positions[1],
