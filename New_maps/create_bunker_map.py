@@ -142,7 +142,7 @@ def create_bunker_map():
     if len(room_positions) > 1:
         room_x, room_y, room_w, room_h = room_positions[1]
         # Position garden on the left side of the room, on the floor
-        garden_x = room_x + int(room_w * 0.15)
+        garden_x = room_x + int(room_w * 0.12)
         # Floor is at about 75% of room height (moved up from 85%)
         garden_y = room_y + int(room_h * 0.79) - new_garden_height
         composite.paste(garden_scaled, (garden_x, garden_y), garden_scaled)
