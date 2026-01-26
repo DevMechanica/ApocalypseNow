@@ -60,10 +60,11 @@ export class GameScene extends Phaser.Scene {
         this.mapScale = scale;
         this.mapOffset = { x: offsetX, y: offsetY };
 
-        // 4. Camera - Static view (no follow), full screen bounds
+        // 4. Camera Setup - Static view (no ZOOM by default)
+        // Reset bounds to match screen
         this.cameras.main.setBounds(0, 0, screenWidth, screenHeight);
 
-        // 5. Input Setup
+        // 5. Input Setup (Touch Camera & RTS Controls)
         this.cursors = this.input.keyboard.createCursorKeys();
         this.wasd = this.input.keyboard.addKeys({
             up: Phaser.Input.Keyboard.KeyCodes.W,
@@ -71,40 +72,108 @@ export class GameScene extends Phaser.Scene {
             left: Phaser.Input.Keyboard.KeyCodes.A,
             right: Phaser.Input.Keyboard.KeyCodes.D
         });
+        this.input.addPointer(1); // Enable multi-touch (2 pointers total)
 
-        // RTS Movement Setup
-        this.targetPosition = null;
-        this.selectedUnit = null;
+        // Camera Logic Variables
+        this.pinchDist = 0;
+        this.isDragging = false;
+        this.dragStart = { x: 0, y: 0 };
+        this.camStart = { x: 0, y: 0 };
 
-        // 1. Selector Handler (Clicking on the Player)
-        this.player.setInteractive();
-        this.player.on('pointerdown', (pointer) => {
+        // --- Mouse Wheel Zoom (PC) ---
+        this.input.on('wheel', (pointer, gameObjects, deltaX, deltaY, deltaZ) => {
+            const sensitivity = 0.001;
+            const newZoom = Phaser.Math.Clamp(this.cameras.main.zoom - (deltaY * sensitivity), 1.0, 3.0);
+            this.cameras.main.setZoom(newZoom);
+        });
+
+        // --- Touch Handling ---
+
+        this.input.on('pointerdown', (pointer) => {
+            // 1. Two fingers = Pinch Start
+            if (this.input.pointer1.isDown && this.input.pointer2.isDown) {
+                this.isDragging = false; // Cancel drag
+                this.pinchDist = Phaser.Math.Distance.Between(
+                    this.input.pointer1.x, this.input.pointer1.y,
+                    this.input.pointer2.x, this.input.pointer2.y
+                );
+                return;
+            }
+
+            // 2. One finger = Ready to Drag or Click
+            if (!this.registry.get('uiBlocked')) {
+                this.isDragging = true;
+                this.dragStart.x = pointer.x;
+                this.dragStart.y = pointer.y;
+                this.camStart.x = this.cameras.main.scrollX;
+                this.camStart.y = this.cameras.main.scrollY;
+            }
+        });
+
+        this.input.on('pointermove', (pointer) => {
+            // A. Pinch-to-Zoom (Two Fingers)
+            if (this.input.pointer1.isDown && this.input.pointer2.isDown) {
+                const dist = Phaser.Math.Distance.Between(
+                    this.input.pointer1.x, this.input.pointer1.y,
+                    this.input.pointer2.x, this.input.pointer2.y
+                );
+
+                // Sensitivity
+                const sensitivity = 0.005;
+                const diff = (dist - this.pinchDist) * sensitivity;
+
+                // Apply Zoom (Clamp 1.0 to 3.0)
+                const newZoom = Phaser.Math.Clamp(this.cameras.main.zoom + diff, 1.0, 3.0);
+                this.cameras.main.setZoom(newZoom);
+                this.pinchDist = dist;
+                return;
+            }
+
+            // B. Drag-to-Pan (One Finger)
+            if (this.isDragging) {
+                const diffX = (this.dragStart.x - pointer.x) / this.cameras.main.zoom;
+                const diffY = (this.dragStart.y - pointer.y) / this.cameras.main.zoom;
+
+                this.cameras.main.setScroll(this.camStart.x + diffX, this.camStart.y + diffY);
+            }
+        });
+
+        this.input.on('pointerup', (pointer) => {
+            this.isDragging = false;
+            this.pinchDist = 0;
+
+            // Detect "Tap" (Movement < 10px) - Handle Selection
+            const distMoved = Phaser.Math.Distance.Between(pointer.x, pointer.y, this.dragStart.x, this.dragStart.y);
+
+            if (distMoved < 10 && !this.registry.get('uiBlocked')) {
+                this.handleTap(pointer);
+            }
+        });
+    }
+
+    handleTap(pointer) {
+        // Logic for Unit Selection / Movement
+        const worldPoint = pointer.positionToCamera(this.cameras.main);
+
+        // 1. Check if clicked on player
+        if (this.player.getBounds().contains(worldPoint.x, worldPoint.y)) {
             if (this.selectedUnit === this.player) {
                 // Deselect
                 this.selectedUnit = null;
                 this.player.clearTint();
-                this.targetPosition = null; // Stop moving
+                this.targetPosition = null;
             } else {
                 // Select
                 this.selectedUnit = this.player;
-                this.player.setTint(0x00ff00); // Visual feedback
+                this.player.setTint(0x00ff00);
             }
-        });
+            return;
+        }
 
-        // 2. Ground Click Handler (Movement)
-        this.input.on('pointerdown', (pointer, currentlyOver) => {
-            // Block if UI is blocked, OR if we clicked on a game object (like the player itself)
-            if (this.registry.get('uiBlocked') || currentlyOver.length > 0) return;
-
-            // Check bounds
-            const withinBounds = pointer.x >= 0 && pointer.x <= this.cameras.main.width &&
-                pointer.y >= 0 && pointer.y <= this.cameras.main.height;
-
-            // Only move if we have a selected unit and are within bounds
-            if (this.selectedUnit && withinBounds) {
-                this.targetPosition = new Phaser.Math.Vector2(pointer.worldX, pointer.worldY);
-            }
-        });
+        // 2. Move to location (if selected)
+        if (this.selectedUnit) {
+            this.targetPosition = new Phaser.Math.Vector2(worldPoint.x, worldPoint.y);
+        }
 
         // 6. Launch UI
         this.scene.launch(CONSTANTS.SCENES.UI);
