@@ -121,6 +121,7 @@ export const ECONOMY = {
         water_purifier: {
             name: 'Water Purifier',
             category: 'production',
+            width: 2,
             bestStat: 'agility',
             buildCost: { materials: 80, caps: 40 },
             powerCost: 8,

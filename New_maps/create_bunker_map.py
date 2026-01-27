@@ -99,6 +99,7 @@ def create_bunker_map():
     entrance_path = os.path.join(script_dir, "EmptyGarageAsset_Office3.png")
     garden_path = os.path.join(project_root, "Objects", "Garden", "hydroponic_garden.png")
     scrap_machine_path = os.path.join(project_root, "Objects", "Machines", "metal_scrap_machine.png")
+    water_purifier_path = os.path.join(project_root, "Objects", "WaterPurifier", "water_purifier.png")
     
     print("Loading images...")
     try:
@@ -107,6 +108,10 @@ def create_bunker_map():
         entrance = Image.open(entrance_path)
         garden = Image.open(garden_path).convert('RGBA')
         scrap_machine = Image.open(scrap_machine_path).convert('RGBA')
+        # Water purifier - load if exists, otherwise skip
+        water_purifier = None
+        if os.path.exists(water_purifier_path):
+            water_purifier = Image.open(water_purifier_path).convert('RGBA')
     except Exception as e:
         print(f"Error loading images: {e}")
         return
@@ -142,6 +147,13 @@ def create_bunker_map():
     # Original code: scrap_machine.getbbox() -> crop.
     if scrap_machine.getbbox():
         scrap_machine_transparent = scrap_machine.crop(scrap_machine.getbbox())
+    
+    # Process water purifier if loaded
+    water_purifier_transparent = None
+    if water_purifier is not None:
+        water_purifier_transparent = remove_white_background(water_purifier, threshold=240)
+        if water_purifier_transparent.getbbox():
+            water_purifier_transparent = water_purifier_transparent.crop(water_purifier_transparent.getbbox())
     
     # Resize rooms
     entrance_scaled = entrance_transparent.resize((new_entrance_width, new_entrance_height), Image.Resampling.LANCZOS)
@@ -217,10 +229,22 @@ def create_bunker_map():
                 composite=composite,
                 room_pos=room_positions[1],
                 asset_image=garden_transparent,
-                start_slot=i*2,  # 0, 2, 4, 6
+                start_slot=i*2,  # 0, 2
                 slot_width_slots=2,
-                asset_name=f"Garden {i+1}"
+                asset_name=f"Garden {i+1} (Floor 2)"
             )
+        
+        # Place water purifiers in slots 4 and 6 (2 slots wide each)
+        if water_purifier_transparent is not None:
+            for i in range(2):
+                place_object(
+                    composite=composite,
+                    room_pos=room_positions[1],
+                    asset_image=water_purifier_transparent,
+                    start_slot=4 + i*2,  # 4, 6
+                    slot_width_slots=2,
+                    asset_name=f"Water Purifier {i+1} (Floor 2)"
+                )
             
     # Place scrap machine in Room 3 (Index 2)
     if len(room_positions) > 2:
