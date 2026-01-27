@@ -99,7 +99,7 @@ def create_bunker_map():
     entrance_path = os.path.join(script_dir, "EmptyGarageAsset_Office5.png")
     garden_path = os.path.join(project_root, "Objects", "Garden", "hydroponic_garden.png")
     scrap_machine_path = os.path.join(project_root, "Objects", "Machines", "metal_scrap_machine.png")
-    water_purifier_path = os.path.join(project_root, "Objects", "WaterPurifier", "water_purifier.png")
+    water_purifier_path = os.path.join(project_root, "Objects", "WaterPurifier", "water_purifier_v2_1769543600142.png")
     
     print("Loading images...")
     try:
@@ -144,12 +144,9 @@ def create_bunker_map():
     if garden_transparent.getbbox():
         garden_transparent = garden_transparent.crop(garden_transparent.getbbox())
         
-    scrap_machine_transparent = scrap_machine # Already RGBA?
-    # Actually scrap machine was loaded as RGBA but might need white removal or crop?
-    # Original code just did crop. Let's assume it has transparency or needs cropping.
-    # Original code: scrap_machine.getbbox() -> crop.
-    if scrap_machine.getbbox():
-        scrap_machine_transparent = scrap_machine.crop(scrap_machine.getbbox())
+    scrap_machine_transparent = remove_white_background(scrap_machine, threshold=240)
+    if scrap_machine_transparent.getbbox():
+        scrap_machine_transparent = scrap_machine_transparent.crop(scrap_machine_transparent.getbbox())
     
     # Process water purifier if loaded
     water_purifier_transparent = None
