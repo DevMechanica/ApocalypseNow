@@ -60,23 +60,29 @@ export class UIScene extends Phaser.Scene {
         resourceKeys.forEach((key, index) => {
             const resDef = ECONOMY.RESOURCES[key];
             const containerX = padding + (index * spacing);
+            const totalW = iconSize + 4 + barWidth;
+            const totalH = Math.max(iconSize, barHeight);
 
-            // Icon
-            const icon = this.add.image(containerX + iconSize / 2, y + iconSize / 2, resDef.icon)
-                .setDisplaySize(iconSize, iconSize)
+            // Create invisible hit area for the entire resource group
+            const hitArea = this.add.rectangle(containerX, y, totalW, totalH, 0x000000, 0)
+                .setOrigin(0, 0)
                 .setInteractive();
 
-            icon.on('pointerover', () => {
+            hitArea.on('pointerover', () => {
                 this.showTooltip(
                     containerX,
-                    y + iconSize + 5,
+                    y + totalH + 5,
                     `${resDef.name}: ${resDef.description}`
                 );
             });
 
-            icon.on('pointerout', () => {
+            hitArea.on('pointerout', () => {
                 this.hideTooltip();
             });
+
+            // Icon
+            const icon = this.add.image(containerX + iconSize / 2, y + iconSize / 2, resDef.icon)
+                .setDisplaySize(iconSize, iconSize);
 
             // Bar Background
             this.add.rectangle(containerX + iconSize + 4, y, barWidth, barHeight, 0x333333).setOrigin(0, 0);
