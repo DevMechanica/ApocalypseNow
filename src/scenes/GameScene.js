@@ -20,7 +20,7 @@ export class GameScene extends Phaser.Scene {
         const screenHeight = this.cameras.main.height;
         const scaleX = screenWidth / map.width;
         const scaleY = screenHeight / map.height;
-        const scale = Math.min(scaleX, scaleY);  // FIT mode - show entire map
+        const scale = scaleY; // Stretch to fill screen height
 
         map.setScale(scale);
 
@@ -33,14 +33,14 @@ export class GameScene extends Phaser.Scene {
         const offsetY = (screenHeight - scaledMapH) / 2;
         map.setPosition(offsetX, offsetY);
 
-        // Building bounds (90% of map width, centered)
-        const buildingWidthRatio = 0.90;
+        // Building bounds (70% of map width, centered)
+        const buildingWidthRatio = 0.70;
         const buildingX = offsetX + (scaledMapW * (1 - buildingWidthRatio) / 2);
         const buildingWidth = scaledMapW * buildingWidthRatio;
 
         // Vertical bounds based on room positions
-        const buildingY = offsetY + (30 * scale);
-        const buildingHeight = 892 * scale;
+        const buildingY = offsetY + (430 * scale);
+        const buildingHeight = 693 * scale;
 
         this.physics.world.setBounds(buildingX, buildingY, buildingWidth, buildingHeight);
 
@@ -155,8 +155,9 @@ export class GameScene extends Phaser.Scene {
         // Logic for Unit Selection / Movement
         const worldPoint = pointer.positionToCamera(this.cameras.main);
 
-        // 1. Check if clicked on player
-        if (this.player.getBounds().contains(worldPoint.x, worldPoint.y)) {
+        // 1. Check if clicked on player (Distance Check for better precision)
+        // Using a radius of 40px from center instead of bounding box
+        if (Phaser.Math.Distance.Between(worldPoint.x, worldPoint.y, this.player.x, this.player.y) < 40) {
             if (this.selectedUnit === this.player) {
                 // Deselect
                 this.selectedUnit = null;

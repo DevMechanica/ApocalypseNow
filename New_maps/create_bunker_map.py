@@ -94,9 +94,9 @@ def create_bunker_map():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(script_dir)
     
-    background_path = os.path.join(script_dir, "Gemini_Generated_Image_i7kl4ci7kl4ci7kl.png")
-    normal_room_path = os.path.join(script_dir, "EmptyRoomAsset_Office4.png")
-    entrance_path = os.path.join(script_dir, "EmptyGarageAsset_Office3.png")
+    background_path = os.path.join(script_dir, "background_city.png")
+    normal_room_path = os.path.join(script_dir, "EmptyRoomAsset_Office6.jpg")
+    entrance_path = os.path.join(script_dir, "EmptyGarageAsset_Office5.png")
     garden_path = os.path.join(project_root, "Objects", "Garden", "hydroponic_garden.png")
     scrap_machine_path = os.path.join(project_root, "Objects", "Machines", "metal_scrap_machine.png")
     water_purifier_path = os.path.join(project_root, "Objects", "WaterPurifier", "water_purifier.png")
@@ -128,13 +128,16 @@ def create_bunker_map():
     room_width, room_height = normal_room_transparent.size
     entrance_width, entrance_height = entrance_transparent.size
     
-    # Scale rooms to fit nicely on the background (about 90% of background width)
-    scale_factor = (bg_width * 0.90) / room_width
+    # Scale rooms to fit nicely on the background (about 70% of background width)
+    scale_factor = (bg_width * 0.70) / room_width
+    
+    # Scale entrance separately (smaller than rooms - 50% of bg width)
+    entrance_scale_factor = (bg_width * 0.70) / entrance_width
     
     new_room_width = int(room_width * scale_factor)
     new_room_height = int(room_height * scale_factor)
-    new_entrance_width = int(entrance_width * scale_factor)
-    new_entrance_height = int(entrance_height * scale_factor)
+    new_entrance_width = int(entrance_width * entrance_scale_factor)
+    new_entrance_height = int(entrance_height * entrance_scale_factor)
     
     # Crop Object transparent backgrounds
     garden_transparent = remove_white_background(garden, threshold=240)
@@ -160,28 +163,18 @@ def create_bunker_map():
     normal_room_scaled = normal_room_transparent.resize((new_room_width, new_room_height), Image.Resampling.LANCZOS)
     
     # Check if we need to extend the background
-    vertical_padding = -68 # Overlap rooms more to bring them closer together
+    vertical_padding = -50 # Overlap rooms more to bring them closer together
     num_normal_rooms = 3
     
-    total_needed_height = 30 + new_entrance_height + (num_normal_rooms * (new_room_height + vertical_padding)) + 50
+    total_needed_height = 500 + new_entrance_height + (num_normal_rooms * (new_room_height + vertical_padding)) + 50
     
     if total_needed_height > bg_height:
-        # Extend background by tiling it
+        # Extend background by stretching it (Resize) instead of tiling
+        # This preserves the look of the mountains/sky as one continuous image
         new_bg_height = int(total_needed_height)
-        extended_background = Image.new('RGBA', (bg_width, new_bg_height))
-        
-        # Tile the background
-        for y in range(0, new_bg_height, bg_height):
-            # Calculate height to paste (handle last tile which might be partial)
-            paste_height = min(bg_height, new_bg_height - y)
-            if paste_height < bg_height:
-                extended_background.paste(background.crop((0, 0, bg_width, paste_height)), (0, y))
-            else:
-                extended_background.paste(background, (0, y))
-        
-        background = extended_background
+        background = background.resize((bg_width, new_bg_height), Image.Resampling.LANCZOS)
         bg_height = new_bg_height
-        print(f"Extended background to: {background.size}")
+        print(f"Extended background (stretched) to: {background.size}")
     
     # Create the composite image
     composite = background.copy()
@@ -190,7 +183,7 @@ def create_bunker_map():
     x_offset = (bg_width - new_entrance_width) // 2
     
     # Place entrance at the top with some padding
-    y_position = 100  # Push rooms down from top
+    y_position = 500  # Push rooms down from top
     composite.paste(entrance_scaled, (x_offset, y_position), entrance_scaled)
     print(f"Placed entrance at: ({x_offset}, {y_position})")
     
@@ -211,12 +204,12 @@ def create_bunker_map():
 
     # Place 4 gardens in Room 1 (Index 0) - "First Floor"
     if len(room_positions) > 0:
-        for i in range(4):
+        for i in range(3):
             place_object(
                 composite=composite,
                 room_pos=room_positions[0],
                 asset_image=garden_transparent,
-                start_slot=i*2,  # 0, 2, 4, 6
+                start_slot=i*2,  # 0, 2, 4
                 slot_width_slots=2,
                 asset_name=f"Garden {i+1} (Floor 1)"
             )
@@ -234,14 +227,14 @@ def create_bunker_map():
                 asset_name=f"Garden {i+1} (Floor 2)"
             )
         
-        # Place water purifiers in slots 4 and 6 (2 slots wide each)
+        # Place water purifiers in slots 4 (2 slots wide)
         if water_purifier_transparent is not None:
-            for i in range(2):
+            for i in range(1):
                 place_object(
                     composite=composite,
                     room_pos=room_positions[1],
                     asset_image=water_purifier_transparent,
-                    start_slot=4 + i*2,  # 4, 6
+                    start_slot=4 + i*2,  # 4
                     slot_width_slots=2,
                     asset_name=f"Water Purifier {i+1} (Floor 2)"
                 )
