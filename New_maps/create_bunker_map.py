@@ -48,8 +48,8 @@ def place_object(composite, room_pos, asset_image, start_slot, slot_width_slots,
     
     # Standardized Constants based on user preference
     ROOM_SLOTS = 8
-    SIZE_PADDING_RATIO = 0.15  # For width calculation
-    POS_PADDING_RATIO = 0.13   # For x-offset position
+    SIZE_PADDING_RATIO = 0.20  # Increased to shrink assets (was 0.15)
+    POS_PADDING_RATIO = 0.14   # Re-adjusted to shift left (was 0.18)
     Y_OFFSET_FACTOR = 0.77     # Vertical position on floor
     
     # Calculate usable width and slot size based on size padding
@@ -238,6 +238,16 @@ def create_bunker_map():
                     slot_width_slots=2,
                     asset_name=f"Water Purifier {i+1} (Floor 2)"
                 )
+        
+        # Place additional garden at slot 6 (testing 4x 2-slot fit)
+        place_object(
+            composite=composite,
+            room_pos=room_positions[1],
+            asset_image=garden_transparent,
+            start_slot=6,
+            slot_width_slots=2,
+            asset_name="Garden 4 (Floor 2)"
+        )
             
     # Place scrap machine in Room 3 (Index 2)
     if len(room_positions) > 2:
@@ -249,6 +259,16 @@ def create_bunker_map():
             start_slot=0,
             slot_width_slots=4,
             asset_name="Scrap Machine"
+        )
+
+        # Place Garden in Room 3 (Index 2) - "Floor 3"
+        place_object(
+            composite=composite,
+            room_pos=room_positions[2],
+            asset_image=garden_transparent,
+            start_slot=4,
+            slot_width_slots=2,
+            asset_name="Garden (Floor 3)"
         )
     
     # Save the composite image

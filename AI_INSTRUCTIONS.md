@@ -55,8 +55,8 @@ place_object(
 ### Positioning Rules (Enforced by Script)
 The `place_object` function enforces specific padding rules to ensure a perfect "flush" fit with the bunker walls. **DO NOT CHANGE THESE CONSTANTS** unless you intend to break the visual alignment for all objects.
 
-- **Size Padding (15%)**: `SIZE_PADDING_RATIO = 0.15`. Objects are scaled to occupy 70% of the room width (15% gap on each side).
-- **Position Padding (10%)**: `POS_PADDING_RATIO = 0.10`. The grid *starts* at a 10% offset. This ensures the leftmost object (Slot 0) is flush with the wall.
+- **Size Padding (18%)**: `SIZE_PADDING_RATIO = 0.18`. Objects are scaled to occupy 64% of the room width.
+- **Position Padding (12%)**: `POS_PADDING_RATIO = 0.12`. The grid *starts* at a 12% offset.
 - **Vertical Alignment (77%)**: `Y_OFFSET_FACTOR = 0.77`. Positions objects correctly on the floor.
 
 ---
