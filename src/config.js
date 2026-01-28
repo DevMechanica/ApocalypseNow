@@ -8,7 +8,7 @@ export const CONFIG = {
 
     // Character settings
     characterPath: 'characters/Normal_optimized.png',
-    characterScale: 0.50, // Resized asset (324px) scaled to 50% = ~162px (crisp)
+    characterScale: 0.35, // Resized asset (324px) scaled to 35%
     characterSpeed: 160,
 
     // Display
