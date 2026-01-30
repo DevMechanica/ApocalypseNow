@@ -181,6 +181,12 @@ export class GameScene extends Phaser.Scene {
     }
 
     update(time, delta) {
+        // Update Three.js overlay (synchronized rendering)
+        const three3D = this.registry.get('three3D');
+        if (three3D) {
+            three3D.update(time, delta);
+        }
+
         if (!this.player) return;
 
         // If not selected, do not move (neither WASD nor RTS)

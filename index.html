@@ -10,6 +10,7 @@
 
 <body>
     <div id="game-container"></div>
+    <div id="three-container"></div>
     <!-- We will use a bundler (Parcel/Vite) normally, but since we just did npm install phaser:
          We might need to use a bundler or point to node_modules/phaser/dist/phaser.js if we aren't using a build step.
          However, 'import Phaser from "phaser"' implies a module bundler.
@@ -30,7 +31,9 @@
     <script type="importmap">
         {
             "imports": {
-                "phaser": "./node_modules/phaser/dist/phaser.esm.js"
+                "phaser": "./node_modules/phaser/dist/phaser.esm.js",
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
             }
         }
     </script>
