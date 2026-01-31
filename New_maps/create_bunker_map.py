@@ -32,6 +32,96 @@ def remove_white_background(image, threshold=240):
     
     return Image.fromarray(data)
 
+def create_textured_slab(width, height, texture_source):
+    """
+    Creates a procedural floor slab/beam image using a texture from an existing image.
+    
+    Args:
+        width: Target width of the slab.
+        height: Target height of the slab.
+        texture_source: PIL Image to sample texture from (e.g., a room image).
+    """
+    # 1. Extract a CLEAN strip from the texture source to use as base
+    # We want to avoid features like doors or lights.
+    # A safe bet is the wall section (top 20%) but only a small horizontal slice.
+    # The room likely has clean concrete on the far left or slightly left of center.
+    src_w, src_h = texture_source.size
+    
+    # Target the upper-middle wall section
+    crop_y_start = int(src_h * 0.20)  # Start at 20% from top
+    crop_height = 40
+    
+    # Define a "safe patch" width. 
+    # Left side (x=50) usually has clean wall before the first door/feature.
+    patch_x_start = 50
+    patch_width = 100  # Take a 100px wide sample
+    if patch_x_start + patch_width > src_w:
+        patch_width = src_w - patch_x_start
+        
+    patch = texture_source.crop((patch_x_start, crop_y_start, patch_x_start + patch_width, crop_y_start + crop_height))
+    
+    # 2. Tile the patch to fill the target width
+    # Create the base slab image
+    slab = Image.new('RGBA', (width, height))
+    
+    # Resize patch to target height first
+    patch_resized = patch.resize((patch_width, height), Image.Resampling.LANCZOS)
+    
+    # Tile it horizontally
+    for x in range(0, width, patch_width):
+        # Calculate width to paste (handle last chunk being smaller)
+        paste_w = min(patch_width, width - x)
+        if paste_w < patch_width:
+            chunk = patch_resized.crop((0, 0, paste_w, height))
+            slab.paste(chunk, (x, 0))
+        else:
+            slab.paste(patch_resized, (x, 0))
+    
+    # 3. Apply color correction to ensure it matches the gray-green concrete
+    data = np.array(slab)
+    
+    # Ensure we have alpha channel to work with
+    if len(data.shape) == 2:  # Grayscale
+        data = np.dstack((data, data, data, np.full((height, width), 255, dtype=np.uint8)))
+    elif data.shape[2] == 3:  # RGB
+        data = np.dstack((data, np.full((height, width), 255, dtype=np.uint8)))
+    
+    # Cast to float for color manipulation
+    data_float = data.astype(np.float32)
+    
+    # Slightly desaturate to match the concrete wall look (reduce color variance)
+    gray = 0.299 * data_float[:,:,0] + 0.587 * data_float[:,:,1] + 0.114 * data_float[:,:,2]
+    desaturation_factor = 0.3  # Blend 30% toward grayscale
+    for i in range(3):
+        data_float[:,:,i] = data_float[:,:,i] * (1 - desaturation_factor) + gray * desaturation_factor
+    
+    # Apply a slight tint toward the gray-green concrete color (matching room walls)
+    # Target color: approximately (140, 150, 145) - the grayish-green of the walls
+    target_r, target_g, target_b = 140, 150, 145
+    tint_strength = 0.2
+    data_float[:,:,0] = data_float[:,:,0] * (1 - tint_strength) + target_r * tint_strength
+    data_float[:,:,1] = data_float[:,:,1] * (1 - tint_strength) + target_g * tint_strength
+    data_float[:,:,2] = data_float[:,:,2] * (1 - tint_strength) + target_b * tint_strength
+    
+    # Convert to int16 for shading operations
+    data_int = np.clip(data_float, 0, 255).astype(np.int16)
+    
+    # Highlight top 2 pixels (lighter edge)
+    data_int[0:2, :, 0:3] = np.clip(data_int[0:2, :, 0:3] + 30, 0, 255)
+    
+    # Shadow bottom 2 pixels (darker edge)
+    data_int[-2:, :, 0:3] = np.clip(data_int[-2:, :, 0:3] - 30, 0, 255)
+    
+    # Subtle vertical panel lines (every 80px for larger, more industrial spacing)
+    for x in range(0, width, 80):
+        if x + 2 < width:
+            data_int[:, x:x+2, 0:3] = np.clip(data_int[:, x:x+2, 0:3] - 20, 0, 255)
+    
+    # Convert back to uint8
+    data = data_int.astype(np.uint8)
+            
+    return Image.fromarray(data)
+
 def place_object(composite, room_pos, asset_image, start_slot, slot_width_slots, asset_name="Object"):
     """
     Places an object in a room based on the standardized grid system.
@@ -95,7 +185,7 @@ def create_bunker_map():
     project_root = os.path.dirname(script_dir)
     
     background_path = os.path.join(script_dir, "background_city.png")
-    normal_room_path = os.path.join(script_dir, "EmptyRoomAsset_Office6.jpg")
+    normal_room_path = os.path.join(script_dir, "image copy.png")
     entrance_path = os.path.join(script_dir, "EmptyGarageAsset_Office5.png")
     garden_path = os.path.join(project_root, "Objects", "Garden", "hydroponic_garden.png")
     scrap_machine_path = os.path.join(project_root, "Objects", "Machines", "metal_scrap_machine.png")
@@ -162,8 +252,40 @@ def create_bunker_map():
     entrance_scaled = entrance_transparent.resize((new_entrance_width, new_entrance_height), Image.Resampling.LANCZOS)
     normal_room_scaled = normal_room_transparent.resize((new_room_width, new_room_height), Image.Resampling.LANCZOS)
     
+    # Resize rooms
+    entrance_scaled = entrance_transparent.resize((new_entrance_width, new_entrance_height), Image.Resampling.LANCZOS)
+    normal_room_scaled = normal_room_transparent.resize((new_room_width, new_room_height), Image.Resampling.LANCZOS)
+    
+    # --- SLAB CREATION ---
+    slab_height = 1
+    # Slab Width: Scaled down to not protrude past walls (88%)
+    slab_width = int(new_room_width * 0.90)
+    
+    # Use custom slab image provided by user
+    print("Loading custom slab image: image.png")
+    custom_slab_path = os.path.join(script_dir, "image.png")
+    
+    if os.path.exists(custom_slab_path):
+        custom_slab = Image.open(custom_slab_path).convert('RGBA')
+        
+        # Remove white background
+        custom_slab_transparent = remove_white_background(custom_slab, threshold=240)
+        
+        # Crop to content
+        if custom_slab_transparent.getbbox():
+            custom_slab_transparent = custom_slab_transparent.crop(custom_slab_transparent.getbbox())
+            
+        # Resize to target dimensions
+        slab_image = custom_slab_transparent.resize((slab_width, slab_height), Image.Resampling.LANCZOS)
+        print(f"Created slab from custom image: {slab_image.size}")
+    else:
+        # Fallback to texture generation if image not found (just in case)
+        print("Custom slab image not found, falling back to textured generation.")
+        slab_image = create_textured_slab(slab_width, slab_height, normal_room_scaled)
+        print(f"Created fallback slab image: {slab_image.size}")
+
     # Check if we need to extend the background
-    vertical_padding = -50 # Overlap rooms more to bring them closer together
+    vertical_padding = -39 # Increased overlap (was -25) to move rooms closer
     num_normal_rooms = 3
     
     total_needed_height = 500 + new_entrance_height + (num_normal_rooms * (new_room_height + vertical_padding)) + 50
@@ -183,7 +305,9 @@ def create_bunker_map():
     x_offset = (bg_width - new_entrance_width) // 2
     
     # Place entrance at the top with some padding
-    y_position = 500  # Push rooms down from top
+    # Y Position: Shifted UP to compensate for increased spacing (was 500)
+    # Goal: Keep bottom room fixed.
+    y_position = 460  
     composite.paste(entrance_scaled, (x_offset, y_position), entrance_scaled)
     print(f"Placed entrance at: ({x_offset}, {y_position})")
     
@@ -196,8 +320,31 @@ def create_bunker_map():
     for i in range(num_normal_rooms):
         room_x_offset = (bg_width - new_room_width) // 2
         composite.paste(normal_room_scaled, (room_x_offset, int(y_position)), normal_room_scaled)
+        
+        # --- PLACE SLAB OVERLAY ---
+        # We want the slab between THIS room (i) and the PREVIOUS room (i-1).
+        
+        # Intersection math:
+        # Overlap Zone = [y_position, y_position + abs(vertical_padding)]
+        # We assume vertical_padding is negative (-30).
+        # So overlap height is 30.
+        # Slab Y = y_position + (abs(vertical_padding) - slab_height) / 2
+        
+        # OFFSETS for visual alignment (User req: "move a bit top and bit right")
+        SLAB_OFFSET_Y = -6  # Move UP (Reduced from -12)
+        SLAB_OFFSET_X = 8   # Move RIGHT (Reduced from 16)
+        
+        overlap_height = abs(vertical_padding)
+        slab_y_offset = (overlap_height - slab_height) // 2
+        final_slab_y = int(y_position + slab_y_offset + SLAB_OFFSET_Y)
+        
+        # Center Slab Horizontally + Offset
+        slab_x_offset = room_x_offset + (new_room_width - slab_width) // 2 + SLAB_OFFSET_X
+        
+        composite.paste(slab_image, (slab_x_offset, final_slab_y), slab_image)
+        
         room_positions.append((room_x_offset, int(y_position), new_room_width, new_room_height))
-        print(f"Placed normal room {i+1} at: ({room_x_offset}, {int(y_position)})")
+        print(f"Placed normal room {i+1} at: ({room_x_offset}, {int(y_position)}) with Slab at {final_slab_y}")
         y_position += new_room_height + vertical_padding
     
     # --- ASSET PLACEMENT ---
