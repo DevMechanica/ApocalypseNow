@@ -95,8 +95,8 @@ def create_bunker_map():
     project_root = os.path.dirname(script_dir)
     
     background_path = os.path.join(script_dir, "background_city.png")
-    normal_room_path = os.path.join(script_dir, "EmptyRoomAsset_Office6.jpg")
-    entrance_path = os.path.join(script_dir, "EmptyGarageAsset_Office5.png")
+    normal_room_path = os.path.join(script_dir, "EmptyRoomAsset_Office6-removebg-preview.png")
+    entrance_path = os.path.join(script_dir, "EmptyGarageAsset_Office5-removebg-preview.png")
     garden_path = os.path.join(project_root, "Objects", "Garden", "hydroponic_garden.png")
     scrap_machine_path = os.path.join(project_root, "Objects", "Machines", "metal_scrap_machine.png")
     water_purifier_path = os.path.join(project_root, "Objects", "WaterPurifier", "water_purifier.png")
@@ -118,10 +118,10 @@ def create_bunker_map():
 
     print(f"Background size: {background.size}")
     
-    # Remove white backgrounds from rooms
-    print("Removing white backgrounds...")
-    entrance_transparent = remove_white_background(entrance, threshold=230)
-    normal_room_transparent = remove_white_background(normal_room, threshold=230)
+    # Remove white backgrounds from rooms - skipped, using removebg images
+    print("Processing rooms (already transparent)...")
+    entrance_transparent = entrance # Already RGBA/Transparent
+    normal_room_transparent = normal_room # Already RGBA/Transparent
     
     # Calculate room dimensions and scaling
     bg_width, bg_height = background.size
@@ -163,7 +163,7 @@ def create_bunker_map():
     normal_room_scaled = normal_room_transparent.resize((new_room_width, new_room_height), Image.Resampling.LANCZOS)
     
     # Check if we need to extend the background
-    vertical_padding = -50 # Overlap rooms more to bring them closer together
+    vertical_padding = -51.4 # Overlap rooms more to bring them closer together
     num_normal_rooms = 3
     
     total_needed_height = 500 + new_entrance_height + (num_normal_rooms * (new_room_height + vertical_padding)) + 50

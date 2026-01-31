@@ -6,7 +6,8 @@ An offline Python asset pipeline that generates high-resolution composite maps f
 ## File Walkthrough
 * `create_bunker_map.py`: The main script.
     * Loads source images (PNGs) using Pillow.
-    * Removes white backgrounds via Chroma Keying.
+    * Loads source assets (some pre-processed with background removed).
+    * Performs chroma keying on raw assets where needed.
     * Dynamically tiles the background if vertical space is needed.
     * Places rooms and objects (gardens, machines) on a grid system.
     * Exports `bunker_map_composite.png`.
