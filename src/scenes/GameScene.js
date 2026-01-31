@@ -39,8 +39,8 @@ export class GameScene extends Phaser.Scene {
         const buildingWidth = scaledMapW * buildingWidthRatio;
 
         // Vertical bounds based on room positions
-        const buildingY = offsetY + (430 * scale);
-        const buildingHeight = 693 * scale;
+        const buildingY = offsetY + (900 * scale);
+        const buildingHeight = 2200 * scale;
 
         this.physics.world.setBounds(buildingX, buildingY, buildingWidth, buildingHeight);
 

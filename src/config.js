@@ -7,8 +7,8 @@ export const CONFIG = {
     mapPath: 'New_maps/bunker_map_composite.png',
 
     // Character settings
-    characterPath: 'characters/Normal_optimized.png',
-    characterScale: 0.35, // Resized asset (324px) scaled to 35%
+    characterPath: 'characters/Normal_optimized-removebg-preview.png',
+    characterScale: 1.35, // Resized asset (324px) scaled to 105% (3x original 0.35)
     characterSpeed: 160,
 
     // Display
