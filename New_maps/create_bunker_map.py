@@ -6,28 +6,40 @@ Script to create a composite bunker map by:
 4. Using chroma key to remove white backgrounds from rooms
 """
 
-from PIL import Image
+from PIL import Image, ImageDraw
 import numpy as np
 import os
 
-def remove_white_background(image, threshold=240):
+def remove_background_floodfill(image, threshold=200):
     """
-    Remove white/near-white background from an image using chroma key.
-    Returns an RGBA image with transparent background.
+    Remove contiguous white background using flood fill from corners.
+    Best for Rooms to preserve internal white walls/lights.
     """
-    # Convert to RGBA if not already
     if image.mode != 'RGBA':
         image = image.convert('RGBA')
     
-    # Convert to numpy array
-    data = np.array(image)
+    width, height = image.size
+    seed_points = [(0, 0), (width-1, 0), (0, height-1), (width-1, height-1)]
     
-    # Find pixels where R, G, B are all above threshold (white/near-white)
-    # This identifies the white background
+    for point in seed_points:
+        try:
+            ImageDraw.floodfill(image, point, (255, 255, 255, 0), thresh=threshold)
+        except Exception as e:
+            pass
+            
+    return image
+
+def remove_white_global(image, threshold=240):
+    """
+    Remove white/near-white background globally using chroma key.
+    Best for Objects (Plants, Machines) to remove white inside sprites.
+    """
+    if image.mode != 'RGBA':
+        image = image.convert('RGBA')
+    
+    data = np.array(image)
     r, g, b, a = data[:, :, 0], data[:, :, 1], data[:, :, 2], data[:, :, 3]
     white_mask = (r > threshold) & (g > threshold) & (b > threshold)
-    
-    # Set alpha to 0 for white pixels (make them transparent)
     data[:, :, 3] = np.where(white_mask, 0, 255)
     
     return Image.fromarray(data)
@@ -95,10 +107,10 @@ def create_bunker_map():
     project_root = os.path.dirname(script_dir)
     
     background_path = os.path.join(script_dir, "background_city.png")
-    normal_room_path = os.path.join(script_dir, "EmptyRoomAsset_Office6-removebg-preview.png")
-    entrance_path = os.path.join(script_dir, "EmptyGarageAsset_Office5-removebg-preview.png")
-    garden_path = os.path.join(project_root, "Objects", "Garden", "hydroponic_garden.png")
-    scrap_machine_path = os.path.join(project_root, "Objects", "Machines", "metal_scrap_machine.png")
+    normal_room_path = os.path.join(script_dir, "image.png")
+    entrance_path = os.path.join(script_dir, "image copy.png")
+    garden_path = os.path.join(project_root, "Objects", "Garden", "hydroponic_plants_v2.png")
+    scrap_machine_path = os.path.join(project_root, "Objects", "Machines", "metal_scrap_machine_v2.png")
     water_purifier_path = os.path.join(project_root, "Objects", "WaterPurifier", "water_purifier_v2_1769543600142.png")
     
     print("Loading images...")
@@ -116,12 +128,18 @@ def create_bunker_map():
         print(f"Error loading images: {e}")
         return
 
-    print(f"Background size: {background.size}")
+    print(f"Original Background size: {background.size}")
+    # UPSCALING MAP RESOLUTION
+    # We double the background size so that high-res assets (plants, machines)
+    # retain their detail when composited.
+    bg_w, bg_h = background.size
+    background = background.resize((bg_w * 3, bg_h * 3), Image.Resampling.LANCZOS)
+    print(f"Upscaled Background size: {background.size}")
     
-    # Remove white backgrounds from rooms - skipped, using removebg images
-    print("Processing rooms (already transparent)...")
-    entrance_transparent = entrance # Already RGBA/Transparent
-    normal_room_transparent = normal_room # Already RGBA/Transparent
+    # Remove white backgrounds from rooms
+    print("Processing rooms (removing backgrounds using FLOOD FILL)...")
+    entrance_transparent = remove_background_floodfill(entrance.convert('RGBA'))
+    normal_room_transparent = remove_background_floodfill(normal_room.convert('RGBA'))
     
     # Calculate room dimensions and scaling
     bg_width, bg_height = background.size
@@ -139,19 +157,19 @@ def create_bunker_map():
     new_entrance_width = int(entrance_width * entrance_scale_factor)
     new_entrance_height = int(entrance_height * entrance_scale_factor)
     
-    # Crop Object transparent backgrounds
-    garden_transparent = remove_white_background(garden, threshold=240)
+    # Crop Object transparent backgrounds (Using GLOBAL removal)
+    garden_transparent = remove_white_global(garden, threshold=240)
     if garden_transparent.getbbox():
         garden_transparent = garden_transparent.crop(garden_transparent.getbbox())
         
-    scrap_machine_transparent = remove_white_background(scrap_machine, threshold=240)
+    scrap_machine_transparent = remove_white_global(scrap_machine, threshold=240)
     if scrap_machine_transparent.getbbox():
         scrap_machine_transparent = scrap_machine_transparent.crop(scrap_machine_transparent.getbbox())
     
     # Process water purifier if loaded
     water_purifier_transparent = None
     if water_purifier is not None:
-        water_purifier_transparent = remove_white_background(water_purifier, threshold=240)
+        water_purifier_transparent = remove_white_global(water_purifier, threshold=240)
         if water_purifier_transparent.getbbox():
             water_purifier_transparent = water_purifier_transparent.crop(water_purifier_transparent.getbbox())
     
@@ -160,10 +178,11 @@ def create_bunker_map():
     normal_room_scaled = normal_room_transparent.resize((new_room_width, new_room_height), Image.Resampling.LANCZOS)
     
     # Check if we need to extend the background
-    vertical_padding = -51.4 # Overlap rooms more to bring them closer together
+    vertical_padding = -150 # Overlap rooms more to bring them closer together
     num_normal_rooms = 3
+    initial_y_offset = 900 # Move rooms down to touch the floor
     
-    total_needed_height = 500 + new_entrance_height + (num_normal_rooms * (new_room_height + vertical_padding)) + 50
+    total_needed_height = initial_y_offset + new_entrance_height + (num_normal_rooms * (new_room_height + vertical_padding)) + 50
     
     if total_needed_height > bg_height:
         # Extend background by stretching it (Resize) instead of tiling
@@ -180,7 +199,7 @@ def create_bunker_map():
     x_offset = (bg_width - new_entrance_width) // 2
     
     # Place entrance at the top with some padding
-    y_position = 500  # Push rooms down from top
+    y_position = initial_y_offset  # Push rooms down from top
     composite.paste(entrance_scaled, (x_offset, y_position), entrance_scaled)
     print(f"Placed entrance at: ({x_offset}, {y_position})")
     
