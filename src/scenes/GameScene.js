@@ -1,5 +1,5 @@
 import * as Phaser from 'phaser';
-import { CONSTANTS, CONFIG } from '../config.js';
+import { CONSTANTS, CONFIG, ECONOMY } from '../config.js';
 import { EconomyManager } from '../economy.js';
 
 export class GameScene extends Phaser.Scene {
@@ -33,16 +33,24 @@ export class GameScene extends Phaser.Scene {
         const offsetY = (screenHeight - scaledMapH) / 2;
         map.setPosition(offsetX, offsetY);
 
-        // Building bounds (70% of map width, centered)
-        const buildingWidthRatio = 0.70;
-        const buildingX = offsetX + (scaledMapW * (1 - buildingWidthRatio) / 2);
-        const buildingWidth = scaledMapW * buildingWidthRatio;
+        // Building bounds (Centered)
+        const leftPadding = scaledMapW * ECONOMY.FLOOR.padding.left;
+        const rightPadding = scaledMapW * ECONOMY.FLOOR.padding.right;
+
+        const buildingX = offsetX + leftPadding;
+        const buildingWidth = scaledMapW - leftPadding - rightPadding;
+
+        // Store bounds for clamping later
+        this.buildingBounds = { minX: buildingX, maxX: buildingX + buildingWidth };
 
         // Vertical bounds based on room positions
-        const buildingY = offsetY + (900 * scale);
-        const buildingHeight = 2200 * scale;
+        this.buildingY = offsetY + (ECONOMY.FLOOR.startY * scale);
+        this.buildingHeight = 2200 * scale; // Keep this bound for now, but strictly we use floors
 
-        this.physics.world.setBounds(buildingX, buildingY, buildingWidth, buildingHeight);
+        this.physics.world.setBounds(buildingX, this.buildingY, buildingWidth, this.buildingHeight);
+
+        // Debug: Draw Floor Lines
+        this.physics.world.setBounds(buildingX, this.buildingY, buildingWidth, this.buildingHeight);
 
 
         // 2. Process Player Texture (Chroma Key)
@@ -50,15 +58,32 @@ export class GameScene extends Phaser.Scene {
 
         // 3. Create Player - Position in center of screen
         const startX = screenWidth / 2;
-        const startY = buildingY + (150 * scale);  // Start near top of building area
+        const startY = this.buildingY + (150 * scale);  // Start near top of building area
 
         this.player = this.physics.add.sprite(startX, startY, 'player_processed');
+        this.player.setOrigin(0.5, 1); // Align feet to the floor line
         this.player.setScale(CONFIG.characterScale * scale);  // Scale player with map
+        // We manage Y manually, so disable World Bounds collision for Y (or entirely if we manage X bounds too)
+        // For now, let's keep world bounds but maybe we need to ensure the bounds don't overlap the floor line?
+        // Actually, if we snap Y, we shouldn't collide with world bounds on Y.
         this.player.setCollideWorldBounds(true);
+        this.player.body.onWorldBounds = true; // Optional
+
+        // CRITICAL FIX: Disable vertical physics collision resolution to prevent jitter
+        // The physics engine will try to "separate" the player if they touch the world bound.
+        // Since we force Y, this creates a tug-of-war (Jitter).
+        // Solution: Allow World Bounds only for X (left/right) or disable strictly for Y?
+        // Arcade Physics doesn't allow per-axis world bounds easily. 
+        // Simplest: Disable world bounds, and clamp X manually in update.
+        this.player.setCollideWorldBounds(false);
 
         // Store scale for other calculations
         this.mapScale = scale;
         this.mapOffset = { x: offsetX, y: offsetY };
+
+        // Debug Graphics Init
+        this.debugGraphics = this.add.graphics();
+        this.debugGraphics.setDepth(100);
 
         // 4. Camera Setup - Static view (no ZOOM by default)
         // Reset bounds to match screen
@@ -155,104 +180,311 @@ export class GameScene extends Phaser.Scene {
         // Logic for Unit Selection / Movement
         const worldPoint = pointer.positionToCamera(this.cameras.main);
 
-        // 1. Check if clicked on player (Distance Check for better precision)
-        // Using a radius of 40px from center instead of bounding box
-        if (Phaser.Math.Distance.Between(worldPoint.x, worldPoint.y, this.player.x, this.player.y) < 40) {
+        // 1. Selector Logic
+        // Use bounds check for better accuracy with origin (0.5, 1)
+        const bounds = this.player.getBounds();
+
+        // Expand bounds slightly for touch friendliness
+        const hitArea = new Phaser.Geom.Rectangle(
+            bounds.x - 20,
+            bounds.y - 20,
+            bounds.width + 40,
+            bounds.height + 40
+        );
+
+        if (hitArea.contains(worldPoint.x, worldPoint.y)) {
             if (this.selectedUnit === this.player) {
-                // Deselect
                 this.selectedUnit = null;
                 this.player.clearTint();
-                this.targetPosition = null;
             } else {
-                // Select
                 this.selectedUnit = this.player;
                 this.player.setTint(0x00ff00);
             }
             return;
         }
 
-        // 2. Move to location (if selected)
+        // 2. Move Logic
+        // STRICT SELECTION: Only move if already selected
         if (this.selectedUnit) {
-            this.targetPosition = new Phaser.Math.Vector2(worldPoint.x, worldPoint.y);
+            // Determine target floor from click Y
+            // Simple heuristic to find closest floor to click
+            let bestFloor = this.currentFloor;
+            let minDiff = 99999;
+
+            for (let i = 0; i < ECONOMY.FLOOR.maxFloors; i++) {
+                const fy = this.getFloorY(i);
+                const diff = Math.abs(worldPoint.y - fy);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    bestFloor = i;
+                }
+            }
+
+            // Reject clicks that are too far from any floor (e.g. in dead space)
+            if (minDiff > (ECONOMY.FLOOR.height * this.mapScale / 2)) {
+                return; // Clicked void
+            }
+
+            if (bestFloor !== this.currentFloor) {
+                // Multi-stage move: Elevator -> Change Floor -> Move X
+                this.triggerElevatorMove(bestFloor);
+
+                // Clamp target X to VALID STANDING BOUNDS (accounting for player width)
+                const halfWidth = (this.player.width * this.player.scaleX) / 2;
+                this.rtsTargetX = Phaser.Math.Clamp(
+                    worldPoint.x,
+                    this.buildingBounds.minX + halfWidth,
+                    this.buildingBounds.maxX - halfWidth
+                );
+            } else {
+                // Same floor, just move X (Clamped to standing bounds)
+                const halfWidth = (this.player.width * this.player.scaleX) / 2;
+                const clampedX = Phaser.Math.Clamp(
+                    worldPoint.x,
+                    this.buildingBounds.minX + halfWidth,
+                    this.buildingBounds.maxX - halfWidth
+                );
+                this.targetPosition = new Phaser.Math.Vector2(clampedX, this.getFloorY(bestFloor));
+            }
         }
 
-        // 6. Launch UI
-        this.scene.launch(CONSTANTS.SCENES.UI);
+
     }
 
     update(time, delta) {
         if (!this.player) return;
 
-        // If not selected, do not move (neither WASD nor RTS)
-        if (this.selectedUnit !== this.player) {
-            this.player.setVelocity(0);
-            return;
+        // Initialize state if missing
+        if (!this.playerState) {
+            this.playerState = 'IDLE';
+            this.currentFloor = 0;
+            this.targetFloor = 0;
+            // Snap to nearest floor initially
+            this.player.y = this.getFloorY(0);
         }
 
         const speed = CONFIG.characterSpeed;
+        const elevatorX = this.getElevatorX();
+        const elevatorZone = CONFIG.ELEVATOR.width / 2;
 
-        // --- 1. Keyboard Input (Priority) ---
+        // --- ELEVATOR SEQUENCE ---
+        if (this.playerState === 'ELEVATOR_PREP') {
+            // Move to elevator X
+            const dist = elevatorX - this.player.x;
+            if (Math.abs(dist) > 4) {
+                this.player.setVelocityX(Math.sign(dist) * speed);
+                this.player.setFlipX(dist > 0);
+                this.player.anims.play('walk', true).ignoreIfPlaying = true; // Placeholder anim
+            } else {
+                this.player.setVelocityX(0);
+                this.player.x = elevatorX;
+                this.playerState = 'ELEVATOR_MOVE';
+
+                // Wait briefly then start moving (Faster: 50ms)
+                this.time.delayedCall(50, () => {
+                    if (this.playerState === 'ELEVATOR_MOVE') this.startElevatorTravel();
+                });
+            }
+            return;
+        }
+
+        if (this.playerState === 'ELEVATOR_TRAVEL') {
+            // Moving vertically
+            const targetY = this.getFloorY(this.targetFloor);
+            const dist = targetY - this.player.y;
+
+            if (Math.abs(dist) > 4) {
+                this.player.setVelocityY(Math.sign(dist) * CONFIG.ELEVATOR.speed);
+                // Disable collision during elevator move
+                this.player.body.checkCollision.none = true;
+            } else {
+                this.player.setVelocityY(0);
+                this.player.y = targetY;
+                this.currentFloor = this.targetFloor;
+                this.player.body.checkCollision.none = false;
+                this.playerState = 'IDLE'; // Or continue to target X if RTS
+
+                // Resume RTS path if pending
+                if (this.rtsTargetX !== null) {
+                    this.targetPosition = new Phaser.Math.Vector2(this.rtsTargetX, targetY);
+                    this.rtsTargetX = null; // Consume
+                }
+            }
+            return;
+        }
+
+        // --- NORMAL MOVEMENT (Floor Locked) ---
+
+        // Ensure Y is locked to floor (unless jumping/falling which is disabled)
+        const floorY = this.getFloorY(this.currentFloor);
+        if (Math.abs(this.player.y - floorY) > 0.1) {
+            this.player.y = floorY;
+            this.player.setVelocityY(0);
+        }
+
+        // STRICT SELECTION CHECK FOR INPUT
+        if (this.selectedUnit !== this.player) {
+            this.player.setVelocityX(0);
+            return;
+        }
+
         let velocityX = 0;
-        let velocityY = 0;
         let isKeyboardMoving = false;
 
-        // Horizontal
+        // Horizontal Input
+        // Use physics world bounds
+        const bounds = this.physics.world.bounds;
+        const halfWidth = (this.player.width * this.player.scaleX) / 2;
+
+        // PREDICTIVE BLOCKING: Check bounds before setting velocity to prevent jitter
+        const minX = bounds.x + halfWidth;
+        const maxX = bounds.x + bounds.width - halfWidth;
+
         if (this.cursors.left.isDown || this.wasd.left.isDown) {
-            velocityX = -speed;
-            this.player.setFlipX(false);
-            isKeyboardMoving = true;
+            if (this.player.x > minX + 1) { // Buffer
+                velocityX = -speed;
+                this.player.setFlipX(false);
+                isKeyboardMoving = true;
+            }
         } else if (this.cursors.right.isDown || this.wasd.right.isDown) {
-            velocityX = speed;
-            this.player.setFlipX(true);
-            isKeyboardMoving = true;
+            if (this.player.x < maxX - 1) { // Buffer
+                velocityX = speed;
+                this.player.setFlipX(true);
+                isKeyboardMoving = true;
+            }
         }
 
-        // Vertical
+        // CLAMP X manually since WorldBounds are off
+        // 0 to camera width (or world bounds width)
+        // Use physics world bounds
+        // const bounds = this.physics.world.bounds; // Already defined above
+        // const halfWidth = (this.player.width * this.player.scaleX) / 2; // Already defined above
+
+        if (this.player.x < bounds.x + halfWidth) {
+            this.player.x = bounds.x + halfWidth;
+            if (velocityX < 0) velocityX = 0;
+        }
+        if (this.player.x > bounds.x + bounds.width - halfWidth) {
+            this.player.x = bounds.x + bounds.width - halfWidth;
+            if (velocityX > 0) velocityX = 0;
+        }
+
+        // Vertical Input (Only at Elevator)
         if (this.cursors.up.isDown || this.wasd.up.isDown) {
-            velocityY = -speed;
-            isKeyboardMoving = true;
+            if (this.canUseElevator()) {
+                this.triggerElevatorMove(this.currentFloor - 1);
+            }
         } else if (this.cursors.down.isDown || this.wasd.down.isDown) {
-            velocityY = speed;
-            isKeyboardMoving = true;
+            if (this.canUseElevator()) {
+                this.triggerElevatorMove(this.currentFloor + 1);
+            }
         }
 
-        // Apply Keyboard Movement
+        // Debug Draw
+        this.drawDebugGrid();
+
         if (isKeyboardMoving) {
-            // Cancel RTS movement if player takes manual control
             this.targetPosition = null;
-
-            this.player.setVelocity(velocityX, velocityY);
-            this.player.body.velocity.normalize().scale(speed);
-            return; // Skip RTS logic
+            this.rtsTargetX = null;
+            this.player.setVelocityX(velocityX);
+            this.playerState = 'WALKING';
+            return;
         }
 
-        // --- 2. RTS Movement (Click to Move) ---
+        // RTS Movement
         if (this.targetPosition) {
-            const distance = Phaser.Math.Distance.Between(
-                this.player.x, this.player.y,
-                this.targetPosition.x, this.targetPosition.y
-            );
-
-            // Tolerance to stop jittering when reaching target (e.g. 4px)
-            if (distance > 4) {
-                // Move towards target
-                this.physics.moveToObject(this.player, this.targetPosition, speed);
-
-                // Update Facing Direction
-                if (this.player.body.velocity.x > 0) {
-                    this.player.setFlipX(true);
-                } else if (this.player.body.velocity.x < 0) {
-                    this.player.setFlipX(false);
-                }
+            const dist = this.targetPosition.x - this.player.x;
+            if (Math.abs(dist) > 4) {
+                this.player.setVelocityX(Math.sign(dist) * speed);
+                this.player.setFlipX(dist > 0);
+                this.playerState = 'WALKING';
             } else {
-                // Reached target
-                this.player.body.reset(this.player.x, this.player.y);
+                this.player.setVelocityX(0);
+                this.player.x = this.targetPosition.x;
                 this.targetPosition = null;
+                this.playerState = 'IDLE';
             }
         } else {
-            // Idle
-            this.player.setVelocity(0);
+            this.player.setVelocityX(0);
+            this.playerState = 'IDLE';
         }
+    }
+
+    getFloorY(floorIndex) {
+
+        // Calculate Y based on config
+        // Base start + (floor * height)
+        // Adjust for scale
+        // We add an offset to align feet with the floor line visually
+        const floorHeightWorld = ECONOMY.FLOOR.height * this.mapScale;
+        // StartY in config is now the exact floor line (1510).
+        // User requested "a little lower". Increased offset to +25.
+        const startYWorld = this.buildingY + (CONFIG.characterScale * this.mapScale * 25);
+        return startYWorld + (floorIndex * floorHeightWorld);
+    }
+
+    getElevatorX() {
+        const screenWidth = this.cameras.main.width;
+        // Assuming elevator is at center of building
+        // buildingX and buildingWidth are needed. 
+        // We can recalculate or store them. For now, use map center calculated in create()
+        // mapOffset.x + (scaledMapW * elevatorXRatio)
+        const scaledMapW = this.cameras.main.width / this.mapScale * this.mapScale; // wait...
+        // Re-use stored values if possible, or recalculate:
+        // Center of screen is approx center of building
+        return screenWidth / 2;
+    }
+
+    canUseElevator() {
+        const elevatorX = this.getElevatorX();
+        return Math.abs(this.player.x - elevatorX) < (CONFIG.ELEVATOR.width * this.mapScale / 2);
+    }
+
+    triggerElevatorMove(targetFloor) {
+        if (targetFloor < 0 || targetFloor >= ECONOMY.FLOOR.maxFloors) return;
+        if (targetFloor === this.currentFloor) return;
+
+        this.targetFloor = targetFloor;
+        this.playerState = 'ELEVATOR_PREP'; // Walk to center first
+    }
+
+    startElevatorTravel() {
+        this.playerState = 'ELEVATOR_TRAVEL';
+    }
+
+    drawDebugGrid() {
+        this.debugGraphics.clear();
+
+        if (!CONFIG.devMode) return;
+
+        // Calculate full height based on max floors
+        const maxFloorY = this.getFloorY(ECONOMY.FLOOR.maxFloors);
+        const fullHeight = maxFloorY + 1000;
+        const fullWidth = Math.max(this.cameras.main.width, 4000);
+
+        // Floor Lines (Green)
+        this.debugGraphics.lineStyle(4, 0x00ff00, 0.8); // Thicker and brighter
+        for (let i = 0; i < ECONOMY.FLOOR.maxFloors; i++) {
+            const y = this.getFloorY(i);
+            this.debugGraphics.lineBetween(0, y, fullWidth, y);
+            // Text needs to be managed separately if we want to clear/draw it efficiently
+            // For now, let's just stick to lines to avoid creating 50 text objects per frame
+        }
+
+        // Wall Lines (Red)
+        this.debugGraphics.lineStyle(4, 0xff0000, 0.8);
+
+        // Left Wall
+        this.debugGraphics.lineBetween(
+            this.buildingBounds.minX, 0,
+            this.buildingBounds.minX, fullHeight
+        );
+
+        // Right Wall
+        this.debugGraphics.lineBetween(
+            this.buildingBounds.maxX, 0,
+            this.buildingBounds.maxX, fullHeight
+        );
     }
 
     createPlayerTexture() {
