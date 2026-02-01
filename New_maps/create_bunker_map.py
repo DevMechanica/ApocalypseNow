@@ -110,7 +110,7 @@ def create_bunker_map():
     normal_room_path = os.path.join(script_dir, "image.png")
     entrance_path = os.path.join(script_dir, "image copy.png")
     garden_path = os.path.join(project_root, "Objects", "Garden", "hydroponic_plants_v2.png")
-    scrap_machine_path = os.path.join(project_root, "Objects", "Machines", "metal_scrap_machine_draft.png")
+    scrap_machine_path = os.path.join(project_root, "Objects", "Machines", "scrap-v3.png")
     water_purifier_path = os.path.join(project_root, "Objects", "WaterPurifier", "water_purifier_v2_1769543600142.png")
     
     print("Loading images...")
