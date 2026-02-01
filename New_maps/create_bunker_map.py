@@ -62,7 +62,7 @@ def place_object(composite, room_pos, asset_image, start_slot, slot_width_slots,
     ROOM_SLOTS = 8
     SIZE_PADDING_RATIO = 0.20  # Increased to shrink assets (was 0.15)
     POS_PADDING_RATIO = 0.14   # Re-adjusted to shift left (was 0.18)
-    Y_OFFSET_FACTOR = 0.77     # Vertical position on floor
+    Y_OFFSET_FACTOR = 0.788 # Vertical position on floor (increased to move assets down)
     
     # Calculate usable width and slot size based on size padding
     # Note: We use the SIZE padding for calculating the base slot width to maintain size consistency
@@ -110,7 +110,7 @@ def create_bunker_map():
     normal_room_path = os.path.join(script_dir, "image.png")
     entrance_path = os.path.join(script_dir, "image copy.png")
     garden_path = os.path.join(project_root, "Objects", "Garden", "hydroponic_plants_v2.png")
-    scrap_machine_path = os.path.join(project_root, "Objects", "Machines", "metal_scrap_machine_v2.png")
+    scrap_machine_path = os.path.join(project_root, "Objects", "Machines", "scrap-v3.png")
     water_purifier_path = os.path.join(project_root, "Objects", "WaterPurifier", "water_purifier_v2_1769543600142.png")
     
     print("Loading images...")
@@ -162,7 +162,7 @@ def create_bunker_map():
     if garden_transparent.getbbox():
         garden_transparent = garden_transparent.crop(garden_transparent.getbbox())
         
-    scrap_machine_transparent = remove_white_global(scrap_machine, threshold=240)
+    scrap_machine_transparent = remove_white_global(scrap_machine, threshold=200)
     if scrap_machine_transparent.getbbox():
         scrap_machine_transparent = scrap_machine_transparent.crop(scrap_machine_transparent.getbbox())
     
