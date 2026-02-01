@@ -11,8 +11,21 @@ export const CONFIG = {
     characterScale: 1.35, // Resized asset (324px) scaled to 105% (3x original 0.35)
     characterSpeed: 160,
 
+    characterSpeed: 160,
+
+    // Elevator Settings
+    ELEVATOR: {
+        xRatio: 0.5,         // Normalized center
+        width: 100,          // Interaction zone width (pixels)
+        speed: 300,          // Pixels per second vertical
+        waitTime: 1000       // ms to wait at floor
+    },
+
     // Display
-    aspectRatio: 9 / 16
+    aspectRatio: 9 / 16,
+
+    // Debugging
+    devMode: true
 };
 
 export const CONSTANTS = {
@@ -265,7 +278,18 @@ export const ECONOMY = {
         slotsPerFloor: 8,
         excavationBaseCost: 100,
         excavationMultiplier: 1.5,  // Cost = base * (multiplier ^ floor)
-        bossFloors: [10, 20, 30, 40, 50]
+        bossFloors: [10, 20, 30, 40, 50],
+        // Dimensions (Source Image Pixels)
+        // Room Height (Scaled) approx 679px. Floor line approx 90% down.
+        // Entrance @ 900. Floor @ 900 + ~610 = 1510.
+        startY: 1510,        // Vertical start of first floor (Floor logic)
+        height: 529,         // Distance between floors (679 + -150 padding)
+        height: 529,         // Distance between floors (679 + -150 padding)
+        height: 529,         // Distance between floors (679 + -150 padding)
+        padding: {
+            left: 0.20,      // Left Wall (Good as is)
+            right: 0.29      // Right Wall (Relaxed from 0.33, was too far in)
+        }
     },
 
     // -------------------------------------------------------------------------
