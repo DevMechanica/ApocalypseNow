@@ -86,6 +86,13 @@ export class GameScene extends Phaser.Scene {
             this.drawDevModeLines();
         }
 
+        // Elevator Highlight (Glow)
+        this.elevatorGlow = this.add.graphics();
+        this.elevatorGlow.fillStyle(0x00ff00, 0.3); // Green, semi-transparent
+        this.elevatorGlow.setBlendMode(Phaser.BlendModes.ADD); // Glow effect
+        this.elevatorGlow.setDepth(50); // Behind player but above map
+        this.elevatorGlow.setVisible(false);
+
         // 4. Camera Setup - Static view (no ZOOM by default)
         // Reset bounds to match screen
         this.cameras.main.setBounds(0, 0, screenWidth, screenHeight);
@@ -207,45 +214,64 @@ export class GameScene extends Phaser.Scene {
         // 2. Move Logic
         // STRICT SELECTION: Only move if already selected
         if (this.selectedUnit) {
-            // Determine target floor from click Y
-            // Simple heuristic to find closest floor to click
-            let bestFloor = this.currentFloor;
-            let minDiff = 99999;
+            // Determine target floor from click Y using FLOOR ZONES
+            // Indices 0-3: 0=Top(Floor 4), 3=Bottom(Floor 1)
+            let clickedFloor = -1;
+            const clickY = worldPoint.y;
 
-            for (let i = 0; i < ECONOMY.FLOOR.maxFloors; i++) {
-                const fy = this.getFloorY(i);
-                const diff = Math.abs(worldPoint.y - fy);
-                if (diff < minDiff) {
-                    minDiff = diff;
-                    bestFloor = i;
+            for (let i = 0; i <= 3; i++) {
+                const floorBottomY = this.getFloorY(i);
+                const zoneTopY = (i === 0) ? 0 : this.getFloorY(i - 1);
+
+                // Strict line-to-line matching (Zero overlap)
+                // Inclusive on bottom (floor level), exclusive on top (ceiling)
+                if (clickY > zoneTopY && clickY <= floorBottomY) {
+                    clickedFloor = i;
+                    break;
                 }
             }
 
-            // Reject clicks that are too far from any floor (e.g. in dead space)
-            if (minDiff > (ECONOMY.FLOOR.height * this.mapScale / 2)) {
-                return; // Clicked void
+            // Catch-all: If click is below the very bottom floor line, it belongs to the bottom floor
+            if (clickedFloor === -1 && clickY > this.getFloorY(3)) {
+                clickedFloor = 3;
             }
 
-            if (bestFloor !== this.currentFloor) {
-                // Multi-stage move: Elevator -> Change Floor -> Move X
-                this.triggerElevatorMove(bestFloor);
+            // If click is still outside any valid floor zone (e.g. above ceiling), ignore
+            if (clickedFloor === -1) {
+                console.log('Clicked outside valid floor zones');
+                return;
+            }
 
-                // Clamp target X to VALID STANDING BOUNDS (accounting for player width)
+            if (clickedFloor !== this.currentFloor) {
+                // AUTOMATIC ELEVATOR NAVIGATION:
+                // Trigger the walk-to-elevator sequence
+                this.triggerElevatorMove(clickedFloor);
+
+                // Save where we want to walk AFTER the elevator trip
                 const halfWidth = (this.player.width * this.player.scaleX) / 2;
                 this.rtsTargetX = Phaser.Math.Clamp(
                     worldPoint.x,
                     this.buildingBounds.minX + halfWidth,
                     this.buildingBounds.maxX - halfWidth
                 );
+
+                console.log(`Auto-Pilot: Walking to elevator to reach Floor ${4 - clickedFloor}`);
             } else {
-                // Same floor, just move X (Clamped to standing bounds)
+                // Same floor: Move horizontally
+                // If we were walking to the elevator for another floor, cancel that.
+                if (this.playerState === 'MOVING_TO_ELEVATOR') {
+                    this.playerState = 'WALKING';
+                }
+
                 const halfWidth = (this.player.width * this.player.scaleX) / 2;
                 const clampedX = Phaser.Math.Clamp(
                     worldPoint.x,
                     this.buildingBounds.minX + halfWidth,
                     this.buildingBounds.maxX - halfWidth
                 );
-                this.targetPosition = new Phaser.Math.Vector2(clampedX, this.getFloorY(bestFloor));
+
+                this.targetPosition = new Phaser.Math.Vector2(clampedX, this.getFloorY(clickedFloor));
+                this.rtsTargetX = null; // Clear any pending elevator resume
             }
         }
 
@@ -257,61 +283,77 @@ export class GameScene extends Phaser.Scene {
         if (!this.player) return;
 
         // Initialize state if missing
+        // Initialize state if missing
         if (!this.playerState) {
             this.playerState = 'IDLE';
-            this.currentFloor = 0;
-            this.targetFloor = 0;
-            // Snap to nearest floor initially
-            this.player.y = this.getFloorY(0);
+            this.currentFloor = 3; // Start at Floor 1 (Bottom, index 3)
+            this.targetFloor = 3;
+            // Snap to floor 1 initially
+            this.player.y = this.getFloorY(3);
         }
 
         const speed = CONFIG.characterSpeed;
         const elevatorX = this.getElevatorX();
+        // Elevator visual feedback (Only in DevMode)
+        if (CONFIG.devMode && this.canUseElevator()) {
+            this.elevatorGlow.setVisible(true);
+            const floorY = this.getFloorY(this.currentFloor);
+            // Draw glow at elevator position on current floor
+            this.elevatorGlow.clear();
+            this.elevatorGlow.fillStyle(0x00ff00, 0.3);
+            const halfWidth = (this.player.width * this.player.scaleX) / 2;
+            const rightWallX = this.buildingBounds.maxX - halfWidth;
+            // Rectangle approx size of elevator door/area (100x150)
+            this.elevatorGlow.fillRect(rightWallX - 50, floorY - 150, 100, 150);
+        } else {
+            this.elevatorGlow.setVisible(false);
+        }
+
         const elevatorZone = CONFIG.ELEVATOR.width / 2;
 
         // --- ELEVATOR SEQUENCE ---
-        if (this.playerState === 'ELEVATOR_PREP') {
-            // Move to elevator X
+
+        // State: Moving to elevator (walking to right wall)
+        if (this.playerState === 'MOVING_TO_ELEVATOR') {
+            const halfWidth = (this.player.width * this.player.scaleX) / 2;
+            const elevatorX = this.buildingBounds.maxX - halfWidth;
             const dist = elevatorX - this.player.x;
+
             if (Math.abs(dist) > 4) {
                 this.player.setVelocityX(Math.sign(dist) * speed);
                 this.player.setFlipX(dist > 0);
-                this.player.anims.play('walk', true).ignoreIfPlaying = true; // Placeholder anim
             } else {
+                // Arrived at elevator
                 this.player.setVelocityX(0);
                 this.player.x = elevatorX;
-                this.playerState = 'ELEVATOR_MOVE';
+                this.playerState = 'IN_ELEVATOR';
+                this.player.setVisible(false); // Hide
 
-                // Wait briefly then start moving (Faster: 50ms)
-                this.time.delayedCall(50, () => {
-                    if (this.playerState === 'ELEVATOR_MOVE') this.startElevatorTravel();
+                // Start 2-second hold timer
+                this.time.delayedCall(2000, () => {
+                    if (this.playerState === 'IN_ELEVATOR') {
+                        // Teleport to target floor
+                        this.currentFloor = this.targetFloor;
+                        this.player.y = this.getFloorY(this.targetFloor);
+                        this.player.setVisible(true); // Show
+                        this.playerState = 'IDLE';
+
+                        // Resume RTS movement if pending
+                        if (this.rtsTargetX !== null) {
+                            this.targetPosition = new Phaser.Math.Vector2(this.rtsTargetX, this.getFloorY(this.targetFloor));
+                            this.rtsTargetX = null;
+                        }
+                    }
                 });
             }
-            return;
+            return; // Block all other input
         }
 
-        if (this.playerState === 'ELEVATOR_TRAVEL') {
-            // Moving vertically
-            const targetY = this.getFloorY(this.targetFloor);
-            const dist = targetY - this.player.y;
-
-            if (Math.abs(dist) > 4) {
-                this.player.setVelocityY(Math.sign(dist) * CONFIG.ELEVATOR.speed);
-                // Disable collision during elevator move
-                this.player.body.checkCollision.none = true;
-            } else {
-                this.player.setVelocityY(0);
-                this.player.y = targetY;
-                this.currentFloor = this.targetFloor;
-                this.player.body.checkCollision.none = false;
-                this.playerState = 'IDLE'; // Or continue to target X if RTS
-
-                // Resume RTS path if pending
-                if (this.rtsTargetX !== null) {
-                    this.targetPosition = new Phaser.Math.Vector2(this.rtsTargetX, targetY);
-                    this.rtsTargetX = null; // Consume
-                }
-            }
+        // State: Inside elevator (waiting for 2-second timer)
+        if (this.playerState === 'IN_ELEVATOR') {
+            // Block all input while in elevator
+            this.player.setVelocityX(0);
+            this.player.setVelocityY(0);
             return;
         }
 
@@ -371,12 +413,12 @@ export class GameScene extends Phaser.Scene {
             if (velocityX > 0) velocityX = 0;
         }
 
-        // Vertical Input (Only at Elevator)
-        if (this.cursors.up.isDown || this.wasd.up.isDown) {
+        // Vertical Input (Only at Elevator) - Use JustDown to prevent repeat
+        if (Phaser.Input.Keyboard.JustDown(this.cursors.up) || Phaser.Input.Keyboard.JustDown(this.wasd.up)) {
             if (this.canUseElevator()) {
                 this.triggerElevatorMove(this.currentFloor - 1);
             }
-        } else if (this.cursors.down.isDown || this.wasd.down.isDown) {
+        } else if (Phaser.Input.Keyboard.JustDown(this.cursors.down) || Phaser.Input.Keyboard.JustDown(this.wasd.down)) {
             if (this.canUseElevator()) {
                 this.triggerElevatorMove(this.currentFloor + 1);
             }
@@ -437,16 +479,27 @@ export class GameScene extends Phaser.Scene {
     }
 
     canUseElevator() {
-        const elevatorX = this.getElevatorX();
-        return Math.abs(this.player.x - elevatorX) < (CONFIG.ELEVATOR.width * this.mapScale / 2);
+        // Elevator is at the right wall
+        const halfWidth = (this.player.width * this.player.scaleX) / 2;
+        const rightWallX = this.buildingBounds.maxX - halfWidth;
+        // Increase threshold to 20 pixels for more forgiving interaction
+        return Math.abs(this.player.x - rightWallX) < 20;
     }
 
     triggerElevatorMove(targetFloor) {
-        if (targetFloor < 0 || targetFloor >= ECONOMY.FLOOR.maxFloors) return;
+        // Clamp to valid floors (0-3) -> Floors 4-1
+        if (targetFloor < 0 || targetFloor > 3) return;
         if (targetFloor === this.currentFloor) return;
 
+        // Clear existing movement targets immediately
+        this.targetPosition = null;
+        this.rtsTargetX = null;
+
+        // Store target for state machine
         this.targetFloor = targetFloor;
-        this.playerState = 'ELEVATOR_PREP'; // Walk to center first
+
+        // Start elevator sequence: Move to elevator position first
+        this.playerState = 'MOVING_TO_ELEVATOR';
     }
 
     startElevatorTravel() {
@@ -462,19 +515,32 @@ export class GameScene extends Phaser.Scene {
         const screenWidth = this.cameras.main.width;
         const totalHeight = this.getFloorY(ECONOMY.FLOOR.maxFloors) + 500;
 
-        // --- FLOOR LINES (GREEN) - Horizontal ---
-        gfx.lineStyle(3, 0x00ff00, 1.0); // Bright green, full opacity
-        for (let i = 0; i < 5; i++) { // First 5 floors
-            const y = this.getFloorY(i);
-            gfx.strokeLineShape(new Phaser.Geom.Line(0, y, screenWidth * 2, y));
+        // --- FLOOR ZONES & LINES (GREEN/TINTED) ---
+        const zoneColors = [0x0000ff, 0x00ff00, 0xffff00, 0xff0000]; // Blue, Green, Yellow, Red
 
-            // Add floor label (inverted: floor 0 at bottom, higher floors at top)
-            const displayFloor = 4 - i; // Invert: i=0 shows "Floor 4", i=4 shows "Floor 0"
-            this.add.text(20, y - 25, `Floor ${displayFloor}`, {
+        for (let i = 0; i <= 3; i++) { // Floors 0-3 (Top to Bottom)
+            const floorBottomY = this.getFloorY(i);
+            const zoneTopY = (i === 0) ? 0 : this.getFloorY(i - 1);
+            let zoneHeight = floorBottomY - zoneTopY;
+
+            // Extend bottom floor visualization to show infinite catch-all
+            if (i === 3) zoneHeight += 1000;
+
+            // Fill zone with semi-transparent color
+            gfx.fillStyle(zoneColors[i], 0.1);
+            gfx.fillRect(0, zoneTopY, screenWidth * 2, zoneHeight);
+
+            // Draw floor line
+            gfx.lineStyle(3, 0x00ff00, 1.0);
+            gfx.strokeLineShape(new Phaser.Geom.Line(0, floorBottomY, screenWidth * 2, floorBottomY));
+
+            // Add floor label
+            const displayFloor = 4 - i; // 0->4, 1->3, 2->2, 3->1
+            this.add.text(20, floorBottomY - 25, `Floor ${displayFloor} Zone`, {
                 fontSize: '14px',
-                color: '#00ff00',
-                backgroundColor: '#000000'
-            }).setDepth(1000);
+                color: '#ffffff',
+                backgroundColor: '#00000088'
+            }).setDepth(1001);
         }
 
         // --- WALL LINES (RED) - Vertical ---
