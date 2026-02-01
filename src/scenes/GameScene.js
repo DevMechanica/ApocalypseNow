@@ -81,9 +81,10 @@ export class GameScene extends Phaser.Scene {
         this.mapScale = scale;
         this.mapOffset = { x: offsetX, y: offsetY };
 
-        // Debug Graphics Init
-        this.debugGraphics = this.add.graphics();
-        this.debugGraphics.setDepth(100);
+        // DevMode Debug Lines - Draw immediately if enabled
+        if (CONFIG.devMode) {
+            this.drawDevModeLines();
+        }
 
         // 4. Camera Setup - Static view (no ZOOM by default)
         // Reset bounds to match screen
@@ -252,6 +253,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     update(time, delta) {
+
         if (!this.player) return;
 
         // Initialize state if missing
@@ -380,8 +382,7 @@ export class GameScene extends Phaser.Scene {
             }
         }
 
-        // Debug Draw
-        this.drawDebugGrid();
+
 
         if (isKeyboardMoving) {
             this.targetPosition = null;
@@ -452,39 +453,57 @@ export class GameScene extends Phaser.Scene {
         this.playerState = 'ELEVATOR_TRAVEL';
     }
 
-    drawDebugGrid() {
-        this.debugGraphics.clear();
+    drawDevModeLines() {
+        // Create a fresh graphics object for debug lines
+        const gfx = this.add.graphics();
+        gfx.setDepth(1000); // Very high depth to be on top
 
-        if (!CONFIG.devMode) return;
+        // Calculate dimensions
+        const screenWidth = this.cameras.main.width;
+        const totalHeight = this.getFloorY(ECONOMY.FLOOR.maxFloors) + 500;
 
-        // Calculate full height based on max floors
-        const maxFloorY = this.getFloorY(ECONOMY.FLOOR.maxFloors);
-        const fullHeight = maxFloorY + 1000;
-        const fullWidth = Math.max(this.cameras.main.width, 4000);
-
-        // Floor Lines (Green)
-        this.debugGraphics.lineStyle(4, 0x00ff00, 0.8); // Thicker and brighter
-        for (let i = 0; i < ECONOMY.FLOOR.maxFloors; i++) {
+        // --- FLOOR LINES (GREEN) - Horizontal ---
+        gfx.lineStyle(3, 0x00ff00, 1.0); // Bright green, full opacity
+        for (let i = 0; i < 5; i++) { // First 5 floors
             const y = this.getFloorY(i);
-            this.debugGraphics.lineBetween(0, y, fullWidth, y);
-            // Text needs to be managed separately if we want to clear/draw it efficiently
-            // For now, let's just stick to lines to avoid creating 50 text objects per frame
+            gfx.strokeLineShape(new Phaser.Geom.Line(0, y, screenWidth * 2, y));
+
+            // Add floor label (inverted: floor 0 at bottom, higher floors at top)
+            const displayFloor = 4 - i; // Invert: i=0 shows "Floor 4", i=4 shows "Floor 0"
+            this.add.text(20, y - 25, `Floor ${displayFloor}`, {
+                fontSize: '14px',
+                color: '#00ff00',
+                backgroundColor: '#000000'
+            }).setDepth(1000);
         }
 
-        // Wall Lines (Red)
-        this.debugGraphics.lineStyle(4, 0xff0000, 0.8);
+        // --- WALL LINES (RED) - Vertical ---
+        gfx.lineStyle(3, 0xff0000, 1.0); // Bright red, full opacity
 
-        // Left Wall
-        this.debugGraphics.lineBetween(
+        // Left wall
+        gfx.strokeLineShape(new Phaser.Geom.Line(
             this.buildingBounds.minX, 0,
-            this.buildingBounds.minX, fullHeight
-        );
+            this.buildingBounds.minX, totalHeight
+        ));
 
-        // Right Wall
-        this.debugGraphics.lineBetween(
+        // Right wall
+        gfx.strokeLineShape(new Phaser.Geom.Line(
             this.buildingBounds.maxX, 0,
-            this.buildingBounds.maxX, fullHeight
-        );
+            this.buildingBounds.maxX, totalHeight
+        ));
+
+        // Add wall labels
+        this.add.text(this.buildingBounds.minX + 5, 100, 'LEFT WALL', {
+            fontSize: '12px',
+            color: '#ff0000',
+            backgroundColor: '#000000'
+        }).setDepth(1000);
+
+        this.add.text(this.buildingBounds.maxX - 80, 100, 'RIGHT WALL', {
+            fontSize: '12px',
+            color: '#ff0000',
+            backgroundColor: '#000000'
+        }).setDepth(1000);
     }
 
     createPlayerTexture() {

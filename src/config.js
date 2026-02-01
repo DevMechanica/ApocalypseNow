@@ -22,7 +22,10 @@ export const CONFIG = {
     },
 
     // Display
-    aspectRatio: 9 / 16
+    aspectRatio: 9 / 16,
+
+    // Debugging
+    devMode: true
 };
 
 export const CONSTANTS = {
@@ -288,9 +291,6 @@ export const ECONOMY = {
             right: 0.29      // Right Wall (Relaxed from 0.33, was too far in)
         }
     },
-
-    // Debugging
-    devMode: true,
 
     // -------------------------------------------------------------------------
     // THREATS
