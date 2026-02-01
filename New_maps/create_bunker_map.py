@@ -47,59 +47,47 @@ def remove_white_global(image, threshold=240):
 def place_object(composite, room_pos, asset_image, start_slot, slot_width_slots, asset_name="Object"):
     """
     Places an object in a room based on the standardized grid system.
-    
-    Args:
-        composite: The main composite image.
-        room_pos: Tuple (x, y, w, h) of the target room.
-        asset_image: The PIL Image of the asset to place.
-        start_slot: The starting slot index (0-7).
-        slot_width_slots: How many slots wide the object is.
-        asset_name: Name for logging.
     """
     room_x, room_y, room_w, room_h = room_pos
     
     # Standardized Constants based on user preference
     ROOM_SLOTS = 8
-    SIZE_PADDING_RATIO = 0.20  # Increased to shrink assets (was 0.15)
-    POS_PADDING_RATIO = 0.14   # Re-adjusted to shift left (was 0.18)
-    Y_OFFSET_FACTOR = 0.788 # Vertical position on floor (increased to move assets down)
+    SIZE_PADDING_RATIO = 0.20
+    POS_PADDING_RATIO = 0.14
+    Y_OFFSET_FACTOR = 0.788
     
-    # Calculate usable width and slot size based on size padding
-    # Note: We use the SIZE padding for calculating the base slot width to maintain size consistency
     usable_width_size = room_w * (1 - (SIZE_PADDING_RATIO * 2))
     base_slot_width = usable_width_size / ROOM_SLOTS
     
-    # Calculate target width for the object
-    # We use 0.95 scale factor to leave a small gap between objects
     target_width = int(base_slot_width * slot_width_slots * 0.95)
     
-    # Scale object
     scale = target_width / asset_image.width
     new_width = int(asset_image.width * scale)
     new_height = int(asset_image.height * scale)
     asset_scaled = asset_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
     
-    # Calculate X Position
-    # We use POS padding for the starting offset
     x_start_offset = room_w * POS_PADDING_RATIO
-    
-    # Calculate global X position
-    # The grid starts at room_x + x_start_offset
-    # Logic: Start at offset -> move N slots over. 
-    # To be consistent with "flush" logic, the slot width for POSITIONING might need to match or be independent.
-    # Here we use the same base_slot_width for spacing steps.
     slot_x_start = room_x + x_start_offset + (start_slot * base_slot_width)
     
-    # Center the object within its assigned slots
     center_offset = ((base_slot_width * slot_width_slots) - new_width) / 2
     final_x = int(slot_x_start + center_offset)
     
-    # Calculate Y Position
     final_y = room_y + int(room_h * Y_OFFSET_FACTOR) - new_height
     
     composite.paste(asset_scaled, (final_x, final_y), asset_scaled)
     print(f"Placed {asset_name} ({slot_width_slots} slots) at: ({final_x}, {final_y})")
 
+def create_concrete_separator(width, height=80):
+    """Generates a procedural concrete separator texture (Deterministic)."""
+    # Base grey (Deterministic)
+    img = Image.new('RGBA', (width, height), (85, 85, 90, 255))
+    draw = ImageDraw.Draw(img)
+        
+    # Draw top and bottom dark lines for definition
+    draw.line((0, 0, width, 0), fill=(40, 40, 40, 255), width=3)
+    draw.line((0, height-1, width, height-1), fill=(30, 30, 30, 255), width=3)
+    
+    return img
 
 def create_bunker_map():
     # Load images
@@ -112,6 +100,7 @@ def create_bunker_map():
     garden_path = os.path.join(project_root, "Objects", "Garden", "hydroponic_plants_v2.png")
     scrap_machine_path = os.path.join(project_root, "Objects", "Machines", "scrap-v4.png")
     water_purifier_path = os.path.join(project_root, "Objects", "WaterPurifier", "water_purifier_v2_1769543600142.png")
+    dirt_texture_path = os.path.join(script_dir, "underground_dirt.png")
     
     print("Loading images...")
     try:
@@ -120,36 +109,42 @@ def create_bunker_map():
         entrance = Image.open(entrance_path)
         garden = Image.open(garden_path).convert('RGBA')
         scrap_machine = Image.open(scrap_machine_path).convert('RGBA')
-        # Water purifier - load if exists, otherwise skip
+        
         water_purifier = None
         if os.path.exists(water_purifier_path):
             water_purifier = Image.open(water_purifier_path).convert('RGBA')
+            
+        dirt_texture = Image.open(dirt_texture_path).convert('RGBA')
     except Exception as e:
         print(f"Error loading images: {e}")
         return
 
     print(f"Original Background size: {background.size}")
-    # UPSCALING MAP RESOLUTION
-    # We double the background size so that high-res assets (plants, machines)
-    # retain their detail when composited.
+    
+    # Upscale Background
     bg_w, bg_h = background.size
     background = background.resize((bg_w * 3, bg_h * 3), Image.Resampling.LANCZOS)
     print(f"Upscaled Background size: {background.size}")
     
-    # Remove white backgrounds from rooms
-    print("Processing rooms (removing backgrounds using FLOOD FILL)...")
+    # Process Rooms
+    print("Processing rooms...")
     entrance_transparent = remove_background_floodfill(entrance.convert('RGBA'))
+    # Reverting crop to preserve Grid System coordinate alignment
+    # if entrance_transparent.getbbox():
+    #    entrance_transparent = entrance_transparent.crop(entrance_transparent.getbbox())
+        
     normal_room_transparent = remove_background_floodfill(normal_room.convert('RGBA'))
+    # Reverting crop to preserve Grid System coordinate alignment 
+    # if normal_room_transparent.getbbox():
+    #    normal_room_transparent = normal_room_transparent.crop(normal_room_transparent.getbbox())
     
-    # Calculate room dimensions and scaling
+    # Dimensions
     bg_width, bg_height = background.size
     room_width, room_height = normal_room_transparent.size
     entrance_width, entrance_height = entrance_transparent.size
     
-    # Scale rooms to fit nicely on the background (about 70% of background width)
+    # Scaling ratios
     scale_factor = (bg_width * 0.70) / room_width
-    
-    # Scale entrance separately (smaller than rooms - 50% of bg width)
     entrance_scale_factor = (bg_width * 0.70) / entrance_width
     
     new_room_width = int(room_width * scale_factor)
@@ -157,7 +152,7 @@ def create_bunker_map():
     new_entrance_width = int(entrance_width * entrance_scale_factor)
     new_entrance_height = int(entrance_height * entrance_scale_factor)
     
-    # Crop Object transparent backgrounds (Using GLOBAL removal)
+    # Process Objects
     garden_transparent = remove_white_global(garden, threshold=240)
     if garden_transparent.getbbox():
         garden_transparent = garden_transparent.crop(garden_transparent.getbbox())
@@ -166,132 +161,119 @@ def create_bunker_map():
     if scrap_machine_transparent.getbbox():
         scrap_machine_transparent = scrap_machine_transparent.crop(scrap_machine_transparent.getbbox())
     
-    # Process water purifier if loaded
     water_purifier_transparent = None
     if water_purifier is not None:
         water_purifier_transparent = remove_white_global(water_purifier, threshold=240)
         if water_purifier_transparent.getbbox():
             water_purifier_transparent = water_purifier_transparent.crop(water_purifier_transparent.getbbox())
-    
-    # Resize rooms
+            
+    # Resize Rooms
     entrance_scaled = entrance_transparent.resize((new_entrance_width, new_entrance_height), Image.Resampling.LANCZOS)
     normal_room_scaled = normal_room_transparent.resize((new_room_width, new_room_height), Image.Resampling.LANCZOS)
     
-    # Check if we need to extend the background
-    vertical_padding = -150 # Overlap rooms more to bring them closer together
-    num_normal_rooms = 3
-    initial_y_offset = 900 # Move rooms down to touch the floor
+    # --- LEVEL 2 LAYOUT PREPARATION ---
     
-    total_needed_height = initial_y_offset + new_entrance_height + (num_normal_rooms * (new_room_height + vertical_padding)) + 50
+    num_normal_rooms = 6
+    separator_height = 80
+    # Precise offsets tuned based on feedback:
+    # Shift down -80 (pull up more to touch separator)
+    # Vertical padding -160 (reduce overlap)
+    shift_down_underground = -55 
+    vertical_padding = -160
     
-    if total_needed_height > bg_height:
-        # Extend background by stretching it (Resize) instead of tiling
-        # This preserves the look of the mountains/sky as one continuous image
-        new_bg_height = int(total_needed_height)
-        background = background.resize((bg_width, new_bg_height), Image.Resampling.LANCZOS)
-        bg_height = new_bg_height
-        print(f"Extended background (stretched) to: {background.size}")
+    # 1. Surface Canvas Height (City BG)
+    surface_height = bg_height
     
-    # Create the composite image
-    composite = background.copy()
+    # 2. Underground Canvas Height
+    # Includes Separator + All Rooms + Padding
+    underground_height = separator_height + (num_normal_rooms * (new_room_height + vertical_padding)) + 300
     
-    # Calculate x position to center rooms
+    total_canvas_height = surface_height + underground_height
+    print(f"Total Canvas Height: {total_canvas_height}")
+    
+    # Create Full Canvas (Dark dirt base)
+    full_bg = Image.new('RGBA', (bg_width, int(total_canvas_height)), (30, 25, 20, 255))
+    
+    # A. PASTE CITY SKYLINE (Top)
+    # Re-open original to prevent image object issues, or use previously resized 'background'
+    full_bg.paste(background, (0, 0))
+    
+    # B. PASTE CONCRETE SEPARATOR
+    separator_img = create_concrete_separator(bg_width, separator_height)
+    separator_y = bg_height
+    # full_bg.paste(separator_img, (0, separator_y)) <--- Moved to end
+    print(f"Calculated Separator Y={separator_y}")
+    
+    # C. STRETCH UNDERGROUND DIRT (Below Separator)
+    dirt_start_y = separator_y + separator_height
+    dirt_fill_height = int(total_canvas_height) - dirt_start_y
+    
+    # Stretch texture to fill the entire underground width and remaining height
+    dirt_texture_stretched = dirt_texture.resize((bg_width, dirt_fill_height), Image.Resampling.LANCZOS)
+    full_bg.paste(dirt_texture_stretched, (0, dirt_start_y))
+        
+    composite = full_bg
+    
+    # --- PLACE ROOMS ---
+    
+    # 1. Entrance (Surface Level)
+    # Align bottom of entrance to bottom of City BG (surface_height)
+    # Added +50 to account for bottom transparency
+    entrance_y = surface_height - new_entrance_height + 95
+
     x_offset = (bg_width - new_entrance_width) // 2
     
-    # Place entrance at the top with some padding
-    y_position = initial_y_offset  # Push rooms down from top
-    composite.paste(entrance_scaled, (x_offset, y_position), entrance_scaled)
-    print(f"Placed entrance at: ({x_offset}, {y_position})")
+    composite.paste(entrance_scaled, (x_offset, entrance_y), entrance_scaled)
+    print(f"Placed Entrance at Y={entrance_y} (Bottom aligned to Surface Ground)")
     
-    # Track room positions for placing objects
+    # 2. Underground Rooms
     room_positions = []
-    
-    # Place normal rooms below, stacked vertically
-    y_position = y_position + new_entrance_height + vertical_padding
+    # Start below the separator
+    current_y = separator_y + separator_height + shift_down_underground
     
     for i in range(num_normal_rooms):
         room_x_offset = (bg_width - new_room_width) // 2
-        composite.paste(normal_room_scaled, (room_x_offset, int(y_position)), normal_room_scaled)
-        room_positions.append((room_x_offset, int(y_position), new_room_width, new_room_height))
-        print(f"Placed normal room {i+1} at: ({room_x_offset}, {int(y_position)})")
-        y_position += new_room_height + vertical_padding
+        composite.paste(normal_room_scaled, (room_x_offset, int(current_y)), normal_room_scaled)
+        
+        room_positions.append((room_x_offset, int(current_y), new_room_width, new_room_height))
+        print(f"Placed Room {i+1} at Y={int(current_y)}")
+        current_y += new_room_height + vertical_padding
+        
+    # --- PLACE ASSETS ---
     
-    # --- ASSET PLACEMENT ---
-
-    # Place 4 gardens in Room 1 (Index 0) - "First Floor"
+    # Room 1: Gardens
     if len(room_positions) > 0:
         for i in range(3):
-            place_object(
-                composite=composite,
-                room_pos=room_positions[0],
-                asset_image=garden_transparent,
-                start_slot=i*2,  # 0, 2, 4
-                slot_width_slots=2,
-                asset_name=f"Garden {i+1} (Floor 1)"
-            )
-    
-    # Place 4 gardens in Room 2 (Index 1)
-    if len(room_positions) > 1:
-        # Garden is 2 slots wide
-        for i in range(2):
-            place_object(
-                composite=composite,
-                room_pos=room_positions[1],
-                asset_image=garden_transparent,
-                start_slot=i*2,  # 0, 2
-                slot_width_slots=2,
-                asset_name=f"Garden {i+1} (Floor 2)"
-            )
-        
-        # Place water purifiers in slots 4 (2 slots wide)
-        if water_purifier_transparent is not None:
-            for i in range(1):
-                place_object(
-                    composite=composite,
-                    room_pos=room_positions[1],
-                    asset_image=water_purifier_transparent,
-                    start_slot=4 + i*2,  # 4
-                    slot_width_slots=2,
-                    asset_name=f"Water Purifier {i+1} (Floor 2)"
-                )
-        
-        # Place additional garden at slot 6 (testing 4x 2-slot fit)
-        place_object(
-            composite=composite,
-            room_pos=room_positions[1],
-            asset_image=garden_transparent,
-            start_slot=6,
-            slot_width_slots=2,
-            asset_name="Garden 4 (Floor 2)"
-        )
+            place_object(composite, room_positions[0], garden_transparent, i*2, 2, f"Garden {i+1} (Floor 1)")
             
-    # Place scrap machine in Room 3 (Index 2)
+    # Room 2: Gardens + Purifier + Extra
+    if len(room_positions) > 1:
+        for i in range(2):
+            place_object(composite, room_positions[1], garden_transparent, i*2, 2, f"Garden {i+1} (Floor 2)")
+        if water_purifier_transparent:
+            place_object(composite, room_positions[1], water_purifier_transparent, 4, 2, "Water Purifier (Floor 2)")
+        place_object(composite, room_positions[1], garden_transparent, 6, 2, "Garden 4 (Floor 2)")
+        
+    # Room 3: Scrap Machine + Garden
     if len(room_positions) > 2:
-        # Machine is 4 slots wide, placing at slot 2 (centered-ish)
-        place_object(
-            composite=composite,
-            room_pos=room_positions[2],
-            asset_image=scrap_machine_transparent,
-            start_slot=0,
-            slot_width_slots=4,
-            asset_name="Scrap Machine"
-        )
+        place_object(composite, room_positions[2], scrap_machine_transparent, 0, 4, "Scrap Machine")
+        place_object(composite, room_positions[2], garden_transparent, 4, 2, "Garden (Floor 3)")
+        
+    # Level 2 (Floors 4, 5, 6)
+    if len(room_positions) > 3:
+        for floor_idx in range(3, len(room_positions)):
+            for i in range(3):
+                place_object(composite, room_positions[floor_idx], garden_transparent, i*2, 2, f"Garden {i+1} (Floor {floor_idx+1})")
+                
+    # --- FINAL LAYERING ---
+    # Paste Separator last so it covers any room overlap
+    composite.paste(separator_img, (0, separator_y))
+    print(f"Placed Separator (Overlay) at Y={separator_y}")
 
-        # Place Garden in Room 3 (Index 2) - "Floor 3"
-        place_object(
-            composite=composite,
-            room_pos=room_positions[2],
-            asset_image=garden_transparent,
-            start_slot=4,
-            slot_width_slots=2,
-            asset_name="Garden (Floor 3)"
-        )
-    
-    # Save the composite image
+    # Save
     output_path = os.path.join(script_dir, "bunker_map_composite.png")
     composite.save(output_path)
-    print(f"\nComposite map saved to: {output_path}")
-    print(f"Final image size: {composite.size}")
+    print(f"\nSaved to: {output_path}")
 
 if __name__ == "__main__":
     create_bunker_map()
