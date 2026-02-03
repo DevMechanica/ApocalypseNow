@@ -10,6 +10,7 @@ export class GameScene extends Phaser.Scene {
     init(data) {
         this.sceneId = data.sceneId || 1;
         this.entryPoint = data.entry || 'DEFAULT'; // 'TOP', 'BOTTOM', or 'DEFAULT'
+        this.transitionData = data.transition || null; // Capture transition data
         this.sceneConfig = CONSTANTS.SCENE_CONFIG[this.sceneId];
         console.log(`Initializing GameScene: Scene ${this.sceneId} (${this.sceneConfig.name}) Entry: ${this.entryPoint}`);
     }
@@ -87,6 +88,7 @@ export class GameScene extends Phaser.Scene {
 
         // LAUNCH THE UI SCENE
         this.scene.launch(CONSTANTS.SCENES.UI);
+        this.scene.bringToTop(CONSTANTS.SCENES.UI); // Ensure UI stays on top after restart
 
         // 3. Create Player - Position in center of screen
         const startX = screenWidth / 2;
@@ -133,7 +135,72 @@ export class GameScene extends Phaser.Scene {
 
         // 4. Camera Setup - Static view (no ZOOM by default)
         // Reset bounds to match screen
-        this.cameras.main.setBounds(0, 0, screenWidth, screenHeight);
+        // DISABLE BOUNDS during transition to allow off-screen scrolling
+        // this.cameras.main.setBounds(0, 0, screenWidth, screenHeight);
+
+        // HANDLE TRANSITION ANIMATION
+        if (this.transitionData && this.transitionData.type === 'SLIDE') {
+            console.log('[GameScene] Handling Transition:', this.transitionData);
+            const dir = this.transitionData.direction; // 'UP' or 'DOWN'
+            // ... (Logic matching implementation plan)
+
+            // Re-evaluating UI Scene Logic:
+            // Down Button -> Going Deeper.
+            // Old Scene (Snapshot) moves UP. (Texture Y: 0 -> -Height).
+            // This looks like we are panning DOWN. (We are moving downwards, so world moves Up).
+            // New Scene (Game) should be BELOW the Old Scene.
+            // So visually it sits at Y=+Height initially?
+            // VISUAL: Old Scene is at Y=0. New Scene is at Y=H.
+            // ANIMATION: Old Scene Y -> -H. New Scene Y -> 0.
+            // Combine: Viewport moves form 0 to H? No.
+            // Viewport moves DOWN over the content.
+
+            // GameScene Camera Logic:
+            // We want the GameScene MAP to appear at Screen Y = +Height initially.
+            // MapWorldY is constant (0). 
+            // ScreenY = MapWorldY - ScrollY.
+            // We want ScreenY = +Height.
+            // 0 - ScrollY = H => ScrollY = -H. 
+            // Wait.
+            // If ScrollY is -H, we are looking at Y=-H. The map (at 0) is H pixels BELOW us.
+            // So Map Screen Y is +H. Correct.
+
+            let startScrollY = 0;
+            if (dir === 'DOWN') {
+                // Going Deeper.
+                // Snapshot Moves UP (Y: 0 -> -H).
+                // We want New Scene to move UP (appear from bottom).
+                // Initial: Map at +H (Bottom).
+                // ScrollY needs to be -H.
+                startScrollY = -screenHeight;
+            } else {
+                // Going UP (Surface).
+                // Snapshot Moves DOWN (Y: 0 -> +H).
+                // We want New Scene to move DOWN (appear from top).
+                // Initial: Map at -H (Top).
+                // We want Map Screen Y = -H.
+                // 0 - ScrollY = -H => ScrollY = +H.
+                startScrollY = screenHeight;
+            }
+
+            console.log(`[GameScene] Setting initial scrollY to ${startScrollY}`);
+            // Force scrollY (bypass bounds if any remained)
+            this.cameras.main.scrollY = startScrollY;
+
+            this.tweens.add({
+                targets: this.cameras.main,
+                scrollY: 0,
+                duration: 1000,
+                ease: 'Cubic.easeInOut',
+                onComplete: () => {
+                    console.log('[GameScene] Camera tween complete');
+                    // Restore bounds after transition?
+                    // this.cameras.main.setBounds(0, 0, screenWidth, screenHeight);
+                }
+            });
+        } else {
+            console.log('[GameScene] No transition data found');
+        }
 
         // 5. Input Setup (Touch Camera & RTS Controls)
         this.cursors = this.input.keyboard.createCursorKeys();

@@ -196,8 +196,7 @@ export class UIScene extends Phaser.Scene {
         btnUp.on('pointerdown', () => {
             const gameScene = this.scene.get(CONSTANTS.SCENES.GAME);
             if (gameScene && gameScene.sceneId > 1) {
-                // Transition Up -> Enter previous scene at BOTTOM
-                gameScene.scene.restart({ sceneId: gameScene.sceneId - 1, entry: 'BOTTOM' });
+                this.startSceneTransition(gameScene.sceneId - 1, 'BOTTOM');
             }
         });
 
@@ -211,8 +210,7 @@ export class UIScene extends Phaser.Scene {
             const gameScene = this.scene.get(CONSTANTS.SCENES.GAME);
             // Max scenes = 10
             if (gameScene && gameScene.sceneId < 10) {
-                // Transition Down -> Enter next scene at TOP
-                gameScene.scene.restart({ sceneId: gameScene.sceneId + 1, entry: 'TOP' });
+                this.startSceneTransition(gameScene.sceneId + 1, 'TOP');
             }
         });
     }
@@ -465,5 +463,74 @@ export class UIScene extends Phaser.Scene {
         if (this.tooltipContainer) {
             this.tooltipContainer.setVisible(false);
         }
+    }
+
+    startSceneTransition(nextSceneId, entryPoint) {
+        const gameScene = this.scene.get(CONSTANTS.SCENES.GAME);
+        if (!gameScene) return;
+
+        // Prevent Double-Click
+        if (this.registry.get('uiBlocked')) return;
+        this.registry.set('uiBlocked', true);
+
+        // Determine Direction
+        // If moving to ID > current, we are going DOWN to deeper floors
+        const direction = nextSceneId > gameScene.sceneId ? 'DOWN' : 'UP';
+
+        console.log(`[UIScene] Starting Transition: Scene ${gameScene.sceneId} -> ${nextSceneId} (${direction})`);
+
+        // 1. Capture Snapshot of the entire game
+        // We use the game renderer to take a texture snap
+        this.game.renderer.snapshot((image) => {
+            console.log('[UIScene] Snapshot captured');
+            // Create a temporary texture from the image source
+            if (this.textures.exists('snap_transition')) {
+                this.textures.remove('snap_transition');
+            }
+            this.textures.addImage('snap_transition', image);
+            console.log('[UIScene] Texture created: snap_transition');
+
+            const width = this.cameras.main.width;
+            const height = this.cameras.main.height;
+
+            // Create Image on UI Scene (since UI scene persists)
+            const snap = this.add.image(0, 0, 'snap_transition').setOrigin(0, 0);
+            snap.setDepth(-100);
+            console.log(`[UIScene] Snapshot overlay added at 0,0 size ${snap.width}x${snap.height}`);
+
+            // 2. Restart Game Scene immediately
+            gameScene.scene.restart({
+                sceneId: nextSceneId,
+                entry: entryPoint,
+                transition: {
+                    type: 'SLIDE',
+                    direction: direction
+                }
+            });
+
+            // 3. Animate the Snapshot
+            // Logic:
+            // Going DOWN: We are descending. Old scene moves UP (visual). New scene appears from Bottom.
+            // Going UP: We are ascending. Old scene moves DOWN (visual). New scene appears from Top.
+
+            let targetY = 0;
+            if (direction === 'DOWN') {
+                targetY = -height; // Move old scene UP
+            } else {
+                targetY = height;  // Move old scene DOWN
+            }
+
+            this.tweens.add({
+                targets: snap,
+                y: targetY,
+                duration: 1000,
+                ease: 'Cubic.easeInOut',
+                onComplete: () => {
+                    snap.destroy();
+                    this.registry.set('uiBlocked', false);
+                    console.log('[UIScene] Transition Complete');
+                }
+            });
+        });
     }
 }
