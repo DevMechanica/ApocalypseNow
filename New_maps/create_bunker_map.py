@@ -161,142 +161,82 @@ def place_object(composite, room_rect, asset_image, start_slot, slot_width_slots
 
 def generate_scene(scene_data, assets, output_dir):
     """Generates a single scene image based on configuration."""
-    print(f"\n--- Generating Scene {scene_data['id']}: {scene_data['name']} ---")
+    print(f"Generating {scene_data['name']}...")
     
     # Unpack Assets
-    bg_base = assets['background_city'] if scene_data['type'] == 'surface' else assets['dirt_texture']
-    room_img = assets['normal_room']
-    entrance_img = assets['entrance']
+    room_img = assets.get('normal_room_scaled', assets['normal_room'])
+    entrance_img = assets.get('entrance_scaled', assets['entrance'])
     
-    # 1. Calculate Canvas Dimensions
-    # Base layout:
-    # Scene 1: 4 Rooms (Sky) + 1 Entrance (Ground) + Padding
-    # Others: N Rooms (Stacked)
+    # 1. Setup Canvas & Background
+    full_bg = None
+    TARGET_WIDTH = 0
+    canvas_h = 0
     
-    room_w, room_h = room_img.size
-    entrance_w, entrance_h = entrance_img.size
-    
-    # Target Width (Based on Background City Width for consistency)
-    TARGET_WIDTH = assets['background_city'].width # Keep 3x upscaled width from main
-    
-    # Calculate Spacing
-    # We want a consistent "Floor Height" for the grid.
-    # New Room Height (Scaled)
-    # Scale Image to fit 70% of width
-    scale_factor = (TARGET_WIDTH * 0.70) / room_w
-    new_room_w = int(room_w * scale_factor)
-    new_room_h = int(room_h * scale_factor)
-    
-    # Entrance Scale
-    entrance_scale = (TARGET_WIDTH * 0.70) / entrance_w
-    new_entrance_w = int(entrance_w * entrance_scale)
-    new_entrance_h = int(entrance_h * entrance_scale)
-    
-    effective_floor_h = new_room_h + VERTICAL_PADDING
-    print(f"Effective Floor Height (Visual) px: {effective_floor_h}")
-    
-    # Canvas Height
-    num_floors = scene_data['floors']
-    
-    # Extra padding for aesthetics
-    top_margin = 100
-    bottom_margin = 100
-    
-    # Default calculation
-    total_content_height = (num_floors * effective_floor_h)
-    
-    if scene_data['type'] == 'surface':
-        # Scene 1 needs extra height for the skyline
+    # Check for Cached Underground BG
+    if scene_data['type'] == 'underground' and 'ug_bg_scaled' in assets:
+        # Use Cached Background (Clone it)
+        full_bg = assets['ug_bg_scaled'].copy()
+        TARGET_WIDTH, canvas_h = full_bg.size
+        
+        # Dimensions are pre-calculated
+        new_room_w, new_room_h = room_img.size
+        effective_floor_h = new_room_h + VERTICAL_PADDING
+        
+        top_margin = 100
+        current_y = top_margin
+        
+        # Room Center X
+        room_x = (TARGET_WIDTH - new_room_w) // 2
+        
+    else:
+        # Surface or standard fallback
+        bg_base = assets['background_city']
+        TARGET_WIDTH = bg_base.width
+        
+        # Calculate Dimensions on the fly (if not cached, though we expect cached)
+        new_room_w, new_room_h = room_img.size
+        new_entrance_w, new_entrance_h = entrance_img.size
+        
+        effective_floor_h = new_room_h + VERTICAL_PADDING
+        
+        num_floors = scene_data['floors']
+        total_content_height = (num_floors * effective_floor_h)
         canvas_h = max(bg_base.height, total_content_height + 500)
-    else:
-        # Underground: Trim bottom gap
-        # The room assets have some transparent padding at the bottom which creates a visual gap.
-        # We need to shrink the canvas height to cut this off.
-        # Based on visual feedback, we'll reduce the canvas height.
         
-        last_room_y = top_margin + ((num_floors - 1) * effective_floor_h)
-        
-        # We add the full room height, THEN subtract the transparency padding.
-        # If effective height is 519 and room height is ~679, there is overlap.
-        # But if the image has blank space at bottom, we need to cut it.
-        # Let's try cutting 80px from the bottom.
-        trim_bottom = 90 
-        
-        canvas_h = last_room_y + new_room_h - trim_bottom
-        print(f"Underground Canvas Height (Trimmed): {canvas_h}")
-
-    print(f"Canvas Size: {TARGET_WIDTH}x{canvas_h}")
-    
-    # Create Canvas
-    full_bg = Image.new('RGBA', (TARGET_WIDTH, canvas_h), (30, 25, 20, 255))
-    
-    # 2. Draw Background
-    if scene_data['type'] == 'surface':
-        # Tile or stretch logic? For surface, just paste at top (Skyline)
-        # If canvas is taller than BG, we might need to fill color or tile.
-        # But usually City BG is quite tall.
+        # Create Canvas
+        full_bg = Image.new('RGBA', (TARGET_WIDTH, canvas_h), (30, 25, 20, 255))
         full_bg.paste(bg_base, (0, 0))
-    else:
-        # Stretched Dirt (User Request)
-        # Resize dirt to fill entire width and height
-        dirt_scaled = bg_base.resize((TARGET_WIDTH, canvas_h), Image.Resampling.LANCZOS)
-        full_bg.paste(dirt_scaled, (0, 0))
-            
-    # 3. Place Floors
-    # Center X
-    room_x = (TARGET_WIDTH - new_room_w) // 2
-    entrance_x = (TARGET_WIDTH - new_entrance_w) // 2
-    
-    # Start Y
-    # For Surface: 
-    # Floor 0 (Top), 1, 2, 3 (Above Ground) -> Normal Rooms
-    # Floor 4 (Ground) -> Entrance Room
-    # We need to align Floor 4 (Ground) such that it looks like it's on the "Ground".
-    # In Scene 1 config, let's say "Ground" is at specific Y.
-    
-    current_y = top_margin
-    
+        
+        top_margin = 100
+        current_y = top_margin
+        
+        room_x = (TARGET_WIDTH - new_room_w) // 2
+        
+    # 2. Place Floors
     if scene_data['type'] == 'surface':
-        # Alignment Strategy: Place Bottom Floor (Entrance) at a fixed "Ground Level" 
-        # and stack upwards.
-        # Ground Level in City BG is roughly at bottom of image? 
-        # Use simple top-down for now, but assume Floor index 4 is Entrance.
+        start_y = 600
+        new_entrance_w, new_entrance_h = entrance_img.size
+        entrance_x = (TARGET_WIDTH - new_entrance_w) // 2
         
-        # Start from top? 
-        # 4 Floors above ground = 0, 1, 2, 3.
-        # 1 Floor ground = 4.
-        
-        start_y = 600 # Moved down from 200 to align better with background and grid
-        
-        for i in range(num_floors):
-            is_ground_floor = (i == num_floors - 1) # Last one is ground
+        for i in range(scene_data['floors']):
+            is_ground_floor = (i == scene_data['floors'] - 1)
             
             if is_ground_floor:
                 # Place Entrance
-                # Resize
-                img = entrance_img.resize((new_entrance_w, new_entrance_h), Image.Resampling.LANCZOS)
-                # Adjust Y to align bottom with previous room's expected bottom?
-                # Actually just stack linearly for now.
                 pos_y = start_y + (i * effective_floor_h)
-                full_bg.paste(img, (entrance_x, pos_y), img)
-                print(f"Placed Entrance (Floor {i+1}) at Y={pos_y}")
+                full_bg.paste(entrance_img, (entrance_x, pos_y), entrance_img)
             else:
-                # Place Normal Room (Above Ground)
-                img = room_img.resize((new_room_w, new_room_h), Image.Resampling.LANCZOS)
+                # Place Normal Room
                 pos_y = start_y + (i * effective_floor_h)
-                full_bg.paste(img, (room_x, pos_y), img)
-                print(f"Placed Room (Floor {i+1}) at Y={pos_y}")
+                full_bg.paste(room_img, (room_x, pos_y), room_img)
                 
-                # TEST ASSETS (User Request)
-                # Floor 1 (Index 0): 4 Plants (2 slots each) -> Slots 0, 2, 4, 6
+                # Objects (Same logic as before)
                 if i == 0:
                     if 'garden' in assets:
                          place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 0, 2, "Plant 1")
                          place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 2, 2, "Plant 2")
                          place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 4, 2, "Plant 3")
                          place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 6, 2, "Plant 4")
-
-                # Floor 2 (Index 1): 3 Plants + 1 Purifier -> Slots 0, 2, 4 + 6
                 if i == 1:
                     if 'garden' in assets:
                          place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 0, 2, "Plant 1")
@@ -304,35 +244,28 @@ def generate_scene(scene_data, assets, output_dir):
                          place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 4, 2, "Plant 3")
                     if 'water_purifier' in assets:
                          place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['water_purifier'], 6, 2, "Water Purifier")
-
-                # Floor 3 (Index 2): Scrap Machine + 2 Plants -> Slots 0 (width 4) + 4, 6
                 if i == 2:
                     if 'scrap_machine' in assets:
                          place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['scrap_machine'], 0, 4, "Scrap Machine")
                     if 'garden' in assets:
                          place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 4, 2, "Plant 1")
                          place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 6, 2, "Plant 2")
-
-                # Floor 4 (Index 3): Scrap Machine Only -> Slot 0
                 if i == 3:
                      if 'scrap_machine' in assets:
                          place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['scrap_machine'], 0, 4, "Scrap Machine")
 
     else:
-        # Underground: Just stack top to bottom
-        # Separator removed by user request
-            
-        for i in range(num_floors):
-            img = room_img.resize((new_room_w, new_room_h), Image.Resampling.LANCZOS)
-            full_bg.paste(img, (room_x, current_y), img)
-            print(f"Placed Room (Floor {i+1}) at Y={current_y}")
+        # Underground
+        for i in range(scene_data['floors']):
+            # Already resized cached room
+            full_bg.paste(room_img, (room_x, current_y), room_img)
             current_y += effective_floor_h
 
     # Save
     output_filename = f"scene_{scene_data['id']}.png"
     output_path = os.path.join(output_dir, output_filename)
-    full_bg.save(output_path)
-    print(f"Saved: {output_path}")
+    full_bg.save(output_path, compress_level=1) # Optimization: Faster save
+    print(f"Saved: {output_filename}")
 
 def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -398,9 +331,57 @@ def main():
         print(f"Failed to load assets: {e}")
         return
 
-    # Generate Layouts
-    for config in SCENE_CONFIGS:
-        generate_scene(config, assets, script_dir)
+    # Pre-Process Common Assets to avoid redundant resizing
+    print("Pre-processing Shared Assets...")
+    
+    # Calculate Standard Dimensions (based on Surface/Scene 1 logic which defines scale)
+    # We assume usage of Background City width
+    ref_bg_width = assets['background_city'].width
+    
+    # Calculate Scaled Room Dimensions (Same for all scenes)
+    room_w, room_h = assets['normal_room'].size
+    scale_factor = (ref_bg_width * 0.70) / room_w
+    new_room_w = int(room_w * scale_factor)
+    new_room_h = int(room_h * scale_factor)
+    assets['normal_room_scaled'] = assets['normal_room'].resize((new_room_w, new_room_h), Image.Resampling.LANCZOS)
+    
+    entrance_w, entrance_h = assets['entrance'].size
+    entrance_scale = (ref_bg_width * 0.70) / entrance_w
+    new_entrance_w = int(entrance_w * entrance_scale)
+    new_entrance_h = int(entrance_h * entrance_scale)
+    assets['entrance_scaled'] = assets['entrance'].resize((new_entrance_w, new_entrance_h), Image.Resampling.LANCZOS)
+    
+    # Pre-calculate Underground Background (Shared by Scenes 2-10)
+    # They all have 5 floors
+    ug_floors = 5
+    vertical_padding = VERTICAL_PADDING
+    effective_floor_h = new_room_h + vertical_padding
+    
+    # Underground Height Calculation logic mirror
+    top_margin = 100
+    last_room_y = top_margin + ((ug_floors - 1) * effective_floor_h)
+    trim_bottom = 90
+    ug_canvas_h = last_room_y + new_room_h - trim_bottom
+    
+    print(f"Pre-generating Underground Background ({ref_bg_width}x{ug_canvas_h})...")
+    assets['ug_bg_scaled'] = assets['dirt_texture'].resize((ref_bg_width, ug_canvas_h), Image.Resampling.LANCZOS)
+    assets['ug_dims'] = (ref_bg_width, ug_canvas_h) # Cache dims
+
+    # Generate Layouts in Parallel
+    print("\nStarting Parallel Generation...")
+    
+    import concurrent.futures
+    
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        # Submit all tasks
+        futures = [executor.submit(generate_scene, config, assets, script_dir) for config in SCENE_CONFIGS]
+        
+        # Wait for completion
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                future.result()
+            except Exception as e:
+                print(f"Scene generation failed: {e}")
 
 if __name__ == "__main__":
     main()
