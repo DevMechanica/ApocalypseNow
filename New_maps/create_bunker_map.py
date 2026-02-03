@@ -26,6 +26,9 @@ POS_PADDING_RATIO = GRID_CONFIG['grid']['positionPaddingRatio']
 GRID_SLOTS = GRID_CONFIG['grid']['slots']
 ASSET_SCALE_FACTOR = GRID_CONFIG['grid'].get('assetScaleFactor', 1.0)
 SLOT_SPACING_FACTOR = GRID_CONFIG['grid'].get('slotSpacingFactor', 1.0)  # <1.0 = tighter spacing
+ASSET_Y_OFFSETS = GRID_CONFIG.get('assetYOffsets', {})
+ASSET_X_OFFSETS = GRID_CONFIG.get('assetXOffsets', {})
+ASSET_SCALES = GRID_CONFIG.get('assetScales', {})
 
 # Scene-specific positioning
 SURFACE_FIRST_ROOM_Y = GRID_CONFIG['scenes']['surface']['firstRoomY']
@@ -95,6 +98,15 @@ def place_object(composite, room_rect, asset_image, start_slot, slot_width_slots
     asset_scale = ASSET_SCALE_FACTOR
     slot_spacing = SLOT_SPACING_FACTOR
     
+    # Determine Per-Asset Scale
+    individual_scale = 1.0
+    name_lower = asset_name.lower()
+    if "scrap" in name_lower:
+        individual_scale = ASSET_SCALES.get('scrap_machine', 1.0)
+    # Add other conditions if needed
+    
+    final_scale_factor = asset_scale * individual_scale
+    
     # Grid Calculations
     grid_start_x = rx + (rw * pos_padding_ratio)
     available_width = rw * (1.0 - (pos_padding_ratio * 2))
@@ -102,7 +114,7 @@ def place_object(composite, room_rect, asset_image, start_slot, slot_width_slots
     
     # Target Attributes - apply scale factor to make assets larger and reduce gaps
     base_target_w = slot_px * slot_width_slots
-    target_w = base_target_w * asset_scale
+    target_w = base_target_w * final_scale_factor
     
     # Scale Asset
     scale = target_w / asset_image.width
@@ -112,11 +124,33 @@ def place_object(composite, room_rect, asset_image, start_slot, slot_width_slots
     # slot_spacing < 1.0 places assets closer together (tighter grid)
     spacing_slot_px = slot_px * slot_spacing
     slot_center_offset = (target_w - base_target_w) / 2
-    draw_x = int(grid_start_x + (start_slot * spacing_slot_px) - slot_center_offset)
-    draw_y = int(ry + (rh * y_offset_factor) - target_h)
+    
+    # Determine Y and X Offsets based on asset type
+    y_offset_px = 0
+    x_offset_px = 0
+    name_lower = asset_name.lower()
+    
+    # Check for offsets in ASSET_Y_OFFSETS and ASSET_X_OFFSETS
+    # Map "Plant 1", "Plant 2" -> "garden"
+    asset_key = None
+    if "plant" in name_lower or "garden" in name_lower:
+        asset_key = 'garden'
+    elif "water" in name_lower and "purifier" in name_lower:
+        asset_key = 'water_purifier'
+    elif "scrap" in name_lower:
+        asset_key = 'scrap_machine'
+        
+    if asset_key:
+        y_offset_px = ASSET_Y_OFFSETS.get(asset_key, 0)
+        x_offset_px = ASSET_X_OFFSETS.get(asset_key, 0)
+        
+    draw_x = int(grid_start_x + (start_slot * spacing_slot_px) - slot_center_offset + x_offset_px)
+    draw_y = int(ry + (rh * y_offset_factor) - target_h + y_offset_px)
     
     # Debug output
     print(f"  -> {asset_name}: room=({rx},{ry},{rw},{rh}), grid_start={grid_start_x:.0f}, slot_px={slot_px:.0f}")
+    if y_offset_px != 0 or x_offset_px != 0:
+        print(f"     [OffsetApplied] {asset_name}: X={x_offset_px}px, Y={y_offset_px}px")
     print(f"     asset_size={target_w:.0f}x{target_h:.0f}, placed at ({draw_x}, {draw_y})")
     
     # Resize and Paste

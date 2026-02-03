@@ -27,10 +27,18 @@
         "comment": "slotSpacingFactor < 1.0 reduces gaps between assets without changing their size"
     },
     "assetYOffsets": {
-        "garden": -30,
-        "water_purifier": 0,
-        "scrap_machine": 80,
-        "comment": "Positive = lower on screen, Negative = higher. Applied after base floor position."
+        "garden": -25,
+        "water_purifier": -1,
+        "scrap_machine": 90,
+        "comment": "TWEAK HERE: Negative = Up, Positive = Down"
+    },
+    "assetXOffsets": {
+        "scrap_machine": -60,
+        "comment": "TWEAK HERE: Negative = Left, Positive = Right"
+    },
+    "assetScales": {
+        "scrap_machine": 0.80,
+        "comment": "Scale multiplier per asset. Default is 1.0 (uses global assetScaleFactor)."
     },
     "scenes": {
         "surface": {
