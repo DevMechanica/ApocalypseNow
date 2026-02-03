@@ -53,11 +53,20 @@ place_object(
 ```
 
 ### Positioning Rules (Enforced by Script)
-The `place_object` function enforces specific padding rules to ensure a perfect "flush" fit with the bunker walls. **DO NOT CHANGE THESE CONSTANTS** unless you intend to break the visual alignment for all objects.
+The `place_object` function enforces specific padding rules to ensure a perfect "flush" fit with the bunker walls.
 
-- **Size Padding (18%)**: `SIZE_PADDING_RATIO = 0.18`. Objects are scaled to occupy 64% of the room width.
-- **Position Padding (12%)**: `POS_PADDING_RATIO = 0.12`. The grid *starts* at a 12% offset.
-- **Vertical Alignment (77%)**: `Y_OFFSET_FACTOR = 0.77`. Positions objects correctly on the floor.
+> **⚠️ DO NOT CHANGE THESE CONSTANTS.** These values have been carefully tuned to align assets with the game's dev mode floor/wall lines. Changing them will break visual alignment everywhere.
+
+**Shared Configuration**: All positioning values are defined in `grid_config.json` at the project root. Both Python and JavaScript read from this file.
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `positionPaddingRatio` | 0.12 | Grid starts at 12% into room width |
+| `floorLineOffset` | 575 | Floor line position within room (pixels) |
+| `roomHeight` | 679 | Scaled room height (pixels) |
+| `WALL_OFFSET_PX` | -50 | Wall line horizontal offset (in GameScene.js) |
+
+**Y Offset Factor** is auto-calculated as `floorLineOffset / roomHeight` (≈0.847) to keep assets and floor lines perfectly synced.
 
 ---
 
@@ -66,7 +75,17 @@ The `place_object` function enforces specific padding rules to ensure a perfect 
     - *Bad*: Object A at Slot 0 (Width 4), Object B at Slot 2 (Width 2). Overlap at slots 2-3.
     - *Good*: Object A at Slot 0 (Width 4), Object B at Slot 4 (Width 2).
 2.  **Asset Labels**: Always label your assets with their slot width in comments or commit messages (e.g., "Added 4-wide Generator").
-3.  **Visual Verification**: After adding an asset, ALWAYS run the python script and check `New_maps/bunker_map_composite.png` to verify alignment.
+3.  **Visual Verification**: After adding an asset, ALWAYS run the python script and check the generated scene images to verify alignment.
 
 ---
-**Status**: The current system is "Optimized". Do not revert to manual positioning logic. Use the Grid.
+
+## 4. Locked Values (Do Not Modify)
+The following values have been calibrated and **MUST NOT be changed**:
+
+- `grid_config.json` → `grid.positionPaddingRatio`: **0.12**
+- `grid_config.json` → `scenes.*.floorLineOffset`: **575**
+- `grid_config.json` → `scenes.*.roomHeight`: **679**
+- `GameScene.js` → `WALL_OFFSET_PX`: **-50**
+
+---
+**Status**: The current system is "Locked & Optimized". Do not modify positioning constants.

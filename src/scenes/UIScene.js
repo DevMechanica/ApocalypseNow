@@ -180,6 +180,41 @@ export class UIScene extends Phaser.Scene {
             stroke: '#000000',
             strokeThickness: 2
         });
+
+        // --- NAVIGATION BUTTONS (Right Side, Above Build) ---
+        const navBtnSize = 50;
+        const navX = width - 40;
+        const navY_Up = height - 200;
+        const navY_Down = height - 140;
+
+        // Up Arrow
+        const btnUp = this.add.rectangle(navX, navY_Up, navBtnSize, navBtnSize, 0x444444)
+            .setStrokeStyle(2, 0x888888)
+            .setInteractive();
+        const textUp = this.add.text(navX, navY_Up, 'UP', { fontSize: '14px', fontStyle: 'bold' }).setOrigin(0.5);
+
+        btnUp.on('pointerdown', () => {
+            const gameScene = this.scene.get(CONSTANTS.SCENES.GAME);
+            if (gameScene && gameScene.sceneId > 1) {
+                // Transition Up -> Enter previous scene at BOTTOM
+                gameScene.scene.restart({ sceneId: gameScene.sceneId - 1, entry: 'BOTTOM' });
+            }
+        });
+
+        // Down Arrow
+        const btnDown = this.add.rectangle(navX, navY_Down, navBtnSize, navBtnSize, 0x444444)
+            .setStrokeStyle(2, 0x888888)
+            .setInteractive();
+        const textDown = this.add.text(navX, navY_Down, 'DN', { fontSize: '14px', fontStyle: 'bold' }).setOrigin(0.5);
+
+        btnDown.on('pointerdown', () => {
+            const gameScene = this.scene.get(CONSTANTS.SCENES.GAME);
+            // Max scenes = 10
+            if (gameScene && gameScene.sceneId < 10) {
+                // Transition Down -> Enter next scene at TOP
+                gameScene.scene.restart({ sceneId: gameScene.sceneId + 1, entry: 'TOP' });
+            }
+        });
     }
 
     createPopupWindow(title) {

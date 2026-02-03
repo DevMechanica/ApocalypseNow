@@ -7,20 +7,30 @@ export class GameScene extends Phaser.Scene {
         super(CONSTANTS.SCENES.GAME);
     }
 
+    init(data) {
+        this.sceneId = data.sceneId || 1;
+        this.entryPoint = data.entry || 'DEFAULT'; // 'TOP', 'BOTTOM', or 'DEFAULT'
+        this.sceneConfig = CONSTANTS.SCENE_CONFIG[this.sceneId];
+        console.log(`Initializing GameScene: Scene ${this.sceneId} (${this.sceneConfig.name}) Entry: ${this.entryPoint}`);
+    }
+
     create() {
         // Initialize Economy Manager
         this.economy = new EconomyManager(this);
         this.economy.init();
 
         // 1. Setup World/Map - Scale to fit screen (show full width)
-        const map = this.add.image(0, 0, 'map').setOrigin(0, 0);
+        const mapKey = this.sceneConfig.asset;
+        const map = this.add.image(0, 0, mapKey).setOrigin(0, 0);
 
         // Scale map to fit the viewport (prioritize showing full width)
         const screenWidth = this.cameras.main.width;
         const screenHeight = this.cameras.main.height;
         const scaleX = screenWidth / map.width;
         const scaleY = screenHeight / map.height;
-        const scale = scaleY; // Stretch to fill screen height
+        // Use Math.min to ensuring the map fits fully within the screen (showing background bars if needed)
+        // User requested to see "background on sides and on top", avoiding "too zoomed in".
+        const scale = Math.min(scaleX, scaleY);
 
         map.setScale(scale);
 
@@ -33,28 +43,50 @@ export class GameScene extends Phaser.Scene {
         const offsetY = (screenHeight - scaledMapH) / 2;
         map.setPosition(offsetX, offsetY);
 
-        // Building bounds (Centered)
-        const leftPadding = scaledMapW * ECONOMY.FLOOR.padding.left;
-        const rightPadding = scaledMapW * ECONOMY.FLOOR.padding.right;
+        // Building bounds - Use Python-derived room positioning
+        // These are source image pixel values from grid_config.json
+        const SOURCE_CANVAS_WIDTH = 2784;  // grid_config.json -> canvas.width
+        const SOURCE_ROOM_X = 418;         // grid_config.json -> room.xPosition
+        const SOURCE_ROOM_W = 1948;        // grid_config.json -> room.scaledWidth
+        const GRID_PADDING_RATIO = 0.12;   // grid_config.json -> grid.positionPaddingRatio
 
-        const buildingX = offsetX + leftPadding;
-        const buildingWidth = scaledMapW - leftPadding - rightPadding;
+        // Calculate inner walkable area (grid area with padding applied)
+        // This matches where assets are placed in the Python script
+        const innerRoomX = SOURCE_ROOM_X + (SOURCE_ROOM_W * GRID_PADDING_RATIO);
+        const innerRoomW = SOURCE_ROOM_W * (1.0 - (GRID_PADDING_RATIO * 2));
+
+        // ⚠️ LOCKED VALUE - DO NOT CHANGE
+        // Wall line horizontal offset, calibrated to match room visuals
+        const WALL_OFFSET_PX = -50;  // Negative = shift left
+
+        // Scale source coordinates to current map scale
+        const buildingX = offsetX + ((innerRoomX + WALL_OFFSET_PX) / SOURCE_CANVAS_WIDTH) * scaledMapW;
+        const buildingWidth = (innerRoomW / SOURCE_CANVAS_WIDTH) * scaledMapW;
 
         // Store bounds for clamping later
         this.buildingBounds = { minX: buildingX, maxX: buildingX + buildingWidth };
 
-        // Vertical bounds based on room positions
-        this.buildingY = offsetY + (ECONOMY.FLOOR.startY * scale);
-        this.buildingHeight = 2200 * scale; // Keep this bound for now, but strictly we use floors
+        // Vertical bounds based on scene-specific room positions
+        const isSurface = (this.sceneId === 1);
+        const sceneFloorConfig = isSurface
+            ? ECONOMY.FLOOR.sceneConfig.surface
+            : ECONOMY.FLOOR.sceneConfig.underground;
+        const floorStartY = sceneFloorConfig.firstRoomY;
+        this.buildingY = offsetY + (floorStartY * scale);
+
+        // Dynamic Height Calculation: Floors * Height + Margin
+        const numFloors = this.sceneConfig.endFloor - this.sceneConfig.startFloor + 1;
+        this.buildingHeight = (numFloors * ECONOMY.FLOOR.height * scale) + (500 * scale); // Adequate buffer
 
         this.physics.world.setBounds(buildingX, this.buildingY, buildingWidth, this.buildingHeight);
 
-        // Debug: Draw Floor Lines
-        this.physics.world.setBounds(buildingX, this.buildingY, buildingWidth, this.buildingHeight);
 
 
         // 2. Process Player Texture (Chroma Key)
         this.createPlayerTexture();
+
+        // LAUNCH THE UI SCENE
+        this.scene.launch(CONSTANTS.SCENES.UI);
 
         // 3. Create Player - Position in center of screen
         const startX = screenWidth / 2;
@@ -63,6 +95,12 @@ export class GameScene extends Phaser.Scene {
         this.player = this.physics.add.sprite(startX, startY, 'player_processed');
         this.player.setOrigin(0.5, 1); // Align feet to the floor line
         this.player.setScale(CONFIG.characterScale * scale);  // Scale player with map
+
+        // DEBUG: Log Player Creation
+        console.log(`[GameScene] Player Created at (${startX}, ${startY})`);
+        console.log(`[GameScene] Texture 'player_processed' exists: ${this.textures.exists('player_processed')}`);
+        console.log(`[GameScene] Player Visible: ${this.player.visible}, Alpha: ${this.player.alpha}`);
+
         // We manage Y manually, so disable World Bounds collision for Y (or entirely if we manage X bounds too)
         // For now, let's keep world bounds but maybe we need to ensure the bounds don't overlap the floor line?
         // Actually, if we snap Y, we shouldn't collide with world bounds on Y.
@@ -106,6 +144,14 @@ export class GameScene extends Phaser.Scene {
             right: Phaser.Input.Keyboard.KeyCodes.D
         });
         this.input.addPointer(1); // Enable multi-touch (2 pointers total)
+
+        // RESET STATE VARIABLES (Critical for Scene Restart)
+        this.playerState = null;
+        this.currentFloor = null;
+        this.targetFloor = null;
+        this.selectedUnit = null;
+        this.targetPosition = null;
+        this.rtsTargetX = null;
 
         // Camera Logic Variables
         this.pinchDist = 0;
@@ -215,13 +261,24 @@ export class GameScene extends Phaser.Scene {
         // STRICT SELECTION: Only move if already selected
         if (this.selectedUnit) {
             // Determine target floor from click Y using FLOOR ZONES
-            // Indices 0-3: 0=Top(Floor 4), 3=Bottom(Floor 1)
             let clickedFloor = -1;
             const clickY = worldPoint.y;
 
-            for (let i = 0; i <= 3; i++) {
+            const startFloor = this.sceneConfig.startFloor;
+            const endFloor = this.sceneConfig.endFloor;
+
+            for (let i = startFloor; i <= endFloor; i++) {
                 const floorBottomY = this.getFloorY(i);
-                const zoneTopY = (i === 0) ? 0 : this.getFloorY(i - 1);
+
+                // Get top of zone
+                let zoneTopY = 0;
+                if (i > startFloor) {
+                    zoneTopY = this.getFloorY(i - 1); // Previous floor bottom is this zone top
+                } else {
+                    // For the very first floor in scene, Top is effectively 0 or undefined.
+                    // Let's assume 0 for simplicity or map top.
+                    zoneTopY = 0;
+                }
 
                 // Strict line-to-line matching (Zero overlap)
                 // Inclusive on bottom (floor level), exclusive on top (ceiling)
@@ -232,8 +289,8 @@ export class GameScene extends Phaser.Scene {
             }
 
             // Catch-all: If click is below the very bottom floor line, it belongs to the bottom floor
-            if (clickedFloor === -1 && clickY > this.getFloorY(3)) {
-                clickedFloor = 3;
+            if (clickedFloor === -1 && clickY > this.getFloorY(endFloor)) {
+                clickedFloor = endFloor;
             }
 
             // If click is still outside any valid floor zone (e.g. above ceiling), ignore
@@ -255,7 +312,7 @@ export class GameScene extends Phaser.Scene {
                     this.buildingBounds.maxX - halfWidth
                 );
 
-                console.log(`Auto-Pilot: Walking to elevator to reach Floor ${4 - clickedFloor}`);
+                console.log(`Auto-Pilot: Walking to elevator to reach Global Floor ${clickedFloor}`);
             } else {
                 // Same floor: Move horizontally
                 // If we were walking to the elevator for another floor, cancel that.
@@ -286,10 +343,30 @@ export class GameScene extends Phaser.Scene {
         // Initialize state if missing
         if (!this.playerState) {
             this.playerState = 'IDLE';
-            this.currentFloor = 3; // Start at Floor 1 (Bottom, index 3)
-            this.targetFloor = 3;
-            // Snap to floor 1 initially
-            this.player.y = this.getFloorY(3);
+
+            // Determine start floor based on entry point
+            const startFloor = this.sceneConfig.startFloor;
+            const endFloor = this.sceneConfig.endFloor;
+
+            if (this.entryPoint === 'TOP') {
+                this.currentFloor = startFloor;
+            } else if (this.entryPoint === 'BOTTOM') {
+                this.currentFloor = endFloor;
+            } else {
+                // Default (Game Start): Bottom floor of Scene 1? 
+                // Or maybe middle? Let's default to bottom (ground level usually)
+                this.currentFloor = endFloor;
+                // Exception for Surface (Scene 1): "Bottom" is floor 5 (Entrance).
+                // Actually floor 1 is top, floor 5 is bottom? 
+                // Let's check Python script. Floor 1 is Y=600 (Top). Floor 5 is Y=2676 (Bottom/Entrance).
+                // So default start should be Surface Entrance = Floor 5.
+            }
+
+            this.targetFloor = this.currentFloor;
+            // Snap to floor initially
+            const initialY = this.getPlayerGroundedY(this.currentFloor);
+            this.player.y = initialY;
+            console.log(`[GameScene] Initial Floor Snap: Floor ${this.currentFloor} -> Y=${initialY}`);
         }
 
         const speed = CONFIG.characterSpeed;
@@ -334,13 +411,13 @@ export class GameScene extends Phaser.Scene {
                     if (this.playerState === 'IN_ELEVATOR') {
                         // Teleport to target floor
                         this.currentFloor = this.targetFloor;
-                        this.player.y = this.getFloorY(this.targetFloor);
+                        this.player.y = this.getPlayerGroundedY(this.targetFloor);
                         this.player.setVisible(true); // Show
                         this.playerState = 'IDLE';
 
                         // Resume RTS movement if pending
                         if (this.rtsTargetX !== null) {
-                            this.targetPosition = new Phaser.Math.Vector2(this.rtsTargetX, this.getFloorY(this.targetFloor));
+                            this.targetPosition = new Phaser.Math.Vector2(this.rtsTargetX, this.getFloorY(this.targetFloor)); // Logic target stays on grid
                             this.rtsTargetX = null;
                         }
                     }
@@ -360,9 +437,9 @@ export class GameScene extends Phaser.Scene {
         // --- NORMAL MOVEMENT (Floor Locked) ---
 
         // Ensure Y is locked to floor (unless jumping/falling which is disabled)
-        const floorY = this.getFloorY(this.currentFloor);
-        if (Math.abs(this.player.y - floorY) > 0.1) {
-            this.player.y = floorY;
+        const targetY = this.getPlayerGroundedY(this.currentFloor);
+        if (Math.abs(this.player.y - targetY) > 0.1) {
+            this.player.y = targetY;
             this.player.setVelocityY(0);
         }
 
@@ -453,17 +530,44 @@ export class GameScene extends Phaser.Scene {
         }
     }
 
-    getFloorY(floorIndex) {
+    getFloorY(globalFloorIndex) {
+        // globalFloorIndex is 1-based (1 to 50)
+        // Convert to 0-based relative to Scene start
 
-        // Calculate Y based on config
-        // Base start + (floor * height)
-        // Adjust for scale
-        // We add an offset to align feet with the floor line visually
-        const floorHeightWorld = ECONOMY.FLOOR.height * this.mapScale;
-        // StartY in config is now the exact floor line (1510).
-        // User requested "a little lower". Increased offset to +25.
-        const startYWorld = this.buildingY + (CONFIG.characterScale * this.mapScale * 25);
-        return startYWorld + (floorIndex * floorHeightWorld);
+        const startFloor = this.sceneConfig.startFloor;
+        const endFloor = this.sceneConfig.endFloor;
+
+        // Check if floor is inside this scene
+        if (globalFloorIndex < startFloor || globalFloorIndex > endFloor) {
+            return -1000; // Off-screen
+        }
+
+        const localIndex = globalFloorIndex - startFloor;
+
+        // Use Python-derived positioning constants from config
+        const isSurface = (this.sceneId === 1);
+        const sceneFloorConfig = isSurface
+            ? ECONOMY.FLOOR.sceneConfig.surface
+            : ECONOMY.FLOOR.sceneConfig.underground;
+
+        const firstRoomY = sceneFloorConfig.firstRoomY;      // Where first room starts (Y)
+        const floorLineOffset = sceneFloorConfig.floorLineOffset; // Floor line within room
+        const floorHeight = ECONOMY.FLOOR.height;            // Effective floor spacing (519)
+
+        // Calculate floor line Y in source image pixels:
+        // floor_line_Y = firstRoomY + floorLineOffset + (localIndex * floorHeight)
+        const floorLineSourceY = firstRoomY + floorLineOffset + (localIndex * floorHeight);
+
+        // Convert to world coordinates (scaled and offset)
+        return this.mapOffset.y + (floorLineSourceY * this.mapScale);
+    }
+
+    // Helper to get grounded player Y (Floor Y + Visual Offset)
+    getPlayerGroundedY(floorIndex) {
+        const floorY = this.getFloorY(floorIndex);
+        // Visual Offset: Move character DOWN to avoid floating.
+        const visualOffset = 80 * this.mapScale;
+        return floorY + visualOffset;
     }
 
     getElevatorX() {
@@ -487,8 +591,11 @@ export class GameScene extends Phaser.Scene {
     }
 
     triggerElevatorMove(targetFloor) {
-        // Clamp to valid floors (0-3) -> Floors 4-1
-        if (targetFloor < 0 || targetFloor > 3) return;
+        // Clamp to valid floors for this scene
+        const startFloor = this.sceneConfig.startFloor;
+        const endFloor = this.sceneConfig.endFloor;
+
+        if (targetFloor < startFloor || targetFloor > endFloor) return;
         if (targetFloor === this.currentFloor) return;
 
         // Clear existing movement targets immediately
@@ -513,21 +620,32 @@ export class GameScene extends Phaser.Scene {
 
         // Calculate dimensions
         const screenWidth = this.cameras.main.width;
-        const totalHeight = this.getFloorY(ECONOMY.FLOOR.maxFloors) + 500;
+        // Forced Large Height to ensure walls verify
+        const totalHeight = 10000;
 
         // --- FLOOR ZONES & LINES (GREEN/TINTED) ---
-        const zoneColors = [0x0000ff, 0x00ff00, 0xffff00, 0xff0000]; // Blue, Green, Yellow, Red
+        const zoneColors = [0x0000ff, 0x00ff00, 0xffff00, 0xff0000, 0x00ffff]; // Blue, Green, Yellow, Red, Cyan
 
-        for (let i = 0; i <= 3; i++) { // Floors 0-3 (Top to Bottom)
-            const floorBottomY = this.getFloorY(i);
-            const zoneTopY = (i === 0) ? 0 : this.getFloorY(i - 1);
+        const startFloor = this.sceneConfig.startFloor;
+        const endFloor = this.sceneConfig.endFloor;
+        const count = endFloor - startFloor + 1;
+
+        for (let i = 0; i < count; i++) {
+            const globalFloor = startFloor + i;
+            const floorBottomY = this.getFloorY(globalFloor);
+
+            // For Zone Top: Use previous floor's bottom
+            let zoneTopY = 0;
+            if (i > 0) {
+                zoneTopY = this.getFloorY(globalFloor - 1);
+            } else {
+                zoneTopY = floorBottomY - (ECONOMY.FLOOR.height * this.mapScale); // Approx top for first floor
+            }
+
             let zoneHeight = floorBottomY - zoneTopY;
 
-            // Extend bottom floor visualization to show infinite catch-all
-            if (i === 3) zoneHeight += 1000;
-
             // Fill zone with semi-transparent color
-            gfx.fillStyle(zoneColors[i], 0.1);
+            gfx.fillStyle(zoneColors[i % zoneColors.length], 0.1);
             gfx.fillRect(0, zoneTopY, screenWidth * 2, zoneHeight);
 
             // Draw floor line
@@ -535,8 +653,7 @@ export class GameScene extends Phaser.Scene {
             gfx.strokeLineShape(new Phaser.Geom.Line(0, floorBottomY, screenWidth * 2, floorBottomY));
 
             // Add floor label
-            const displayFloor = 4 - i; // 0->4, 1->3, 2->2, 3->1
-            this.add.text(20, floorBottomY - 25, `Floor ${displayFloor} Zone`, {
+            this.add.text(20, floorBottomY - 25, `Global Floor ${globalFloor}`, {
                 fontSize: '14px',
                 color: '#ffffff',
                 backgroundColor: '#00000088'
@@ -575,6 +692,14 @@ export class GameScene extends Phaser.Scene {
     createPlayerTexture() {
         // Create a canvas to process the image
         const textureManager = this.textures;
+
+        // Check if already processed
+        if (textureManager.exists('player_processed')) {
+            // Remove it to ensure we regenerate a fresh texture for the new scene/context
+            // This prevents "disappearing" issues on scene re-entry
+            textureManager.remove('player_processed');
+        }
+
         const sourceImage = textureManager.get('player').getSourceImage();
 
         // Handle if image not loaded perfectly or already processed

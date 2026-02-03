@@ -41,8 +41,12 @@ export class PreloadScene extends Phaser.Scene {
         });
 
         // Load Assets
-        // Map and Character
-        this.load.image('map', CONFIG.mapPath);
+        // Load Assets
+        // Map Scenes (1-10)
+        for (let i = 1; i <= 10; i++) {
+            this.load.image(`scene_${i}`, `${CONFIG.mapPath}${i}.png`);
+        }
+
         this.load.image('player', CONFIG.characterPath);
 
         // UI Icons

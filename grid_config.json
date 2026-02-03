@@ -1,0 +1,47 @@
+{
+    "_warning": "LOCKED VALUES - DO NOT MODIFY without explicit approval. These values are calibrated.",
+    "_comment": "SHARED GRID CONFIG - Both Python (create_bunker_map.py) and JavaScript (config.js/GameScene.js) read from this file",
+    "_sync_note": "After editing, run: python New_maps/create_bunker_map.py to regenerate scenes",
+    "canvas": {
+        "width": 2784,
+        "comment": "Python TARGET_WIDTH = bg_w * 3"
+    },
+    "room": {
+        "sourceWidth": 1024,
+        "sourceHeight": 357,
+        "scaledWidth": 1948,
+        "scaledHeight": 679,
+        "xPosition": 418,
+        "comment": "Room is centered: (canvas.width - scaledWidth) / 2"
+    },
+    "floor": {
+        "effectiveHeight": 519,
+        "verticalPadding": -160,
+        "comment": "effectiveHeight = scaledHeight + verticalPadding"
+    },
+    "grid": {
+        "slots": 8,
+        "positionPaddingRatio": 0.12,
+        "assetScaleFactor": 1.00,
+        "slotSpacingFactor": 0.77,
+        "comment": "slotSpacingFactor < 1.0 reduces gaps between assets without changing their size"
+    },
+    "assetYOffsets": {
+        "garden": -30,
+        "water_purifier": 0,
+        "scrap_machine": 80,
+        "comment": "Positive = lower on screen, Negative = higher. Applied after base floor position."
+    },
+    "scenes": {
+        "surface": {
+            "firstRoomY": 600,
+            "floorLineOffset": 590,
+            "roomHeight": 679
+        },
+        "underground": {
+            "firstRoomY": 100,
+            "floorLineOffset": 590,
+            "roomHeight": 679
+        }
+    }
+}

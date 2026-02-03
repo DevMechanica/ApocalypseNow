@@ -11,12 +11,24 @@ Handles the visual presentation and state inputs of the game using the Phaser 3 
 
 ## Grid System (8-Slot)
 Every bunker floor is divided into **8 horizontal slots**. All room/object assets must define their `width` in slots.
+
+### Shared Configuration
+Grid values are defined in **`grid_config.json`** at the project root. Both Python (`create_bunker_map.py`) and JavaScript (`config.js`, `GameScene.js`) read from this file.
+
+> **⚠️ LOCKED VALUES**: These positioning constants have been calibrated and **MUST NOT be changed**.
+
+### Key Values (Locked)
 * **Slot Width**: Must be 1-8.
 * **No Overlapping**: Object at Slot 0 (Width 4) blocks Slots 0-3. Next object starts at Slot 4.
-* **Positioning Constants** (enforced by `New_maps/create_bunker_map.py`):
-    * `SIZE_PADDING_RATIO = 0.15` (70% usable room width)
-    * `POS_PADDING_RATIO = 0.13` (grid start offset)
-    * `Y_OFFSET_FACTOR = 0.77` (floor vertical alignment)
+* **Positioning Constants** (from `grid_config.json`):
+    * `positionPaddingRatio = 0.12` (grid start offset within room) **LOCKED**
+    * `floorLineOffset = 575` (floor line position in pixels) **LOCKED**
+    * `roomHeight = 679` (scaled room height) **LOCKED**
+    * `WALL_OFFSET_PX = -50` (wall line offset in GameScene.js) **LOCKED**
+* **Source Image Constants**:
+    * Canvas Width: 2784px
+    * Room Width (scaled): 1948px
+    * Room X (centered): 418px
 
 ## Art Style
 * **Aesthetic**: Fallout-inspired post-apocalyptic bunker management.

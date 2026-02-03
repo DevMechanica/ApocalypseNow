@@ -4,21 +4,19 @@
 
 export const CONFIG = {
     // Map settings
-    mapPath: 'New_maps/bunker_map_composite.png',
+    mapPath: 'New_maps/scene_', // Base path for dynamic loading (e.g., scene_1.png)
 
     // Character settings
     characterPath: 'characters/Normal_optimized-removebg-preview.png',
-    characterScale: 1.35, // Resized asset (324px) scaled to 105% (3x original 0.35)
-    characterSpeed: 160,
-
+    characterScale: 1.35,
     characterSpeed: 160,
 
     // Elevator Settings
     ELEVATOR: {
-        xRatio: 0.5,         // Normalized center
-        width: 100,          // Interaction zone width (pixels)
-        speed: 300,          // Pixels per second vertical
-        waitTime: 1000       // ms to wait at floor
+        xRatio: 0.5,
+        width: 100,
+        speed: 300,
+        waitTime: 1000
     },
 
     // Display
@@ -34,6 +32,19 @@ export const CONSTANTS = {
         PRELOAD: 'PreloadScene',
         GAME: 'GameScene',
         UI: 'UIScene'
+    },
+    // New Scene Configuration
+    SCENE_CONFIG: {
+        1: { id: 1, name: 'Surface', asset: 'scene_1', startFloor: 1, endFloor: 5, bg: 'background_city' },
+        2: { id: 2, name: 'Underground 01', asset: 'scene_2', startFloor: 6, endFloor: 10, bg: 'underground_dirt' },
+        3: { id: 3, name: 'Underground 02', asset: 'scene_3', startFloor: 11, endFloor: 15, bg: 'underground_dirt' },
+        4: { id: 4, name: 'Underground 03', asset: 'scene_4', startFloor: 16, endFloor: 20, bg: 'underground_dirt' },
+        5: { id: 5, name: 'Underground 04', asset: 'scene_5', startFloor: 21, endFloor: 25, bg: 'underground_dirt' },
+        6: { id: 6, name: 'Underground 05', asset: 'scene_6', startFloor: 26, endFloor: 30, bg: 'underground_dirt' },
+        7: { id: 7, name: 'Underground 06', asset: 'scene_7', startFloor: 31, endFloor: 35, bg: 'underground_dirt' },
+        8: { id: 8, name: 'Underground 07', asset: 'scene_8', startFloor: 36, endFloor: 40, bg: 'underground_dirt' },
+        9: { id: 9, name: 'Underground 08', asset: 'scene_9', startFloor: 41, endFloor: 45, bg: 'underground_dirt' },
+        10: { id: 10, name: 'Deep Underground', asset: 'scene_10', startFloor: 46, endFloor: 50, bg: 'underground_dirt' }
     }
 };
 
@@ -280,15 +291,26 @@ export const ECONOMY = {
         excavationMultiplier: 1.5,  // Cost = base * (multiplier ^ floor)
         bossFloors: [10, 20, 30, 40, 50],
         // Dimensions (Source Image Pixels)
-        // Room Height (Scaled) approx 679px. Floor line approx 90% down.
-        // Entrance @ 900. Floor @ 900 + ~610 = 1510.
-        startY: 1510,        // Vertical start of first floor (Floor logic)
-        height: 529,         // Distance between floors (679 + -150 padding)
-        height: 529,         // Distance between floors (679 + -150 padding)
-        height: 529,         // Distance between floors (679 + -150 padding)
+        // *** SYNC WITH grid_config.json - These values must match! ***
+        // After changes, run: python New_maps/create_bunker_map.py
+        height: 519,  // grid_config.json -> floor.effectiveHeight
+
         padding: {
-            left: 0.20,      // Left Wall (Good as is)
-            right: 0.29      // Right Wall (Relaxed from 0.33, was too far in)
+            left: 0.15,      // Left Wall (matches Python room_x / canvas_w = 418/2784)
+            right: 0.15      // Right Wall (room is centered, symmetric padding)
+        },
+
+        // Scene-specific Y positioning
+        // *** SYNC WITH grid_config.json -> scenes ***
+        sceneConfig: {
+            surface: {
+                firstRoomY: 600,       // grid_config.json -> scenes.surface.firstRoomY
+                floorLineOffset: 575   // grid_config.json -> scenes.surface.floorLineOffset
+            },
+            underground: {
+                firstRoomY: 100,       // grid_config.json -> scenes.underground.firstRoomY
+                floorLineOffset: 575   // grid_config.json -> scenes.underground.floorLineOffset
+            }
         }
     },
 
