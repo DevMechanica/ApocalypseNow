@@ -29,9 +29,9 @@ export class GameScene extends Phaser.Scene {
         const screenHeight = this.cameras.main.height;
         const scaleX = screenWidth / map.width;
         const scaleY = screenHeight / map.height;
-        // Use Math.min to ensuring the map fits fully within the screen (showing background bars if needed)
-        // User requested to see "background on sides and on top", avoiding "too zoomed in".
-        const scale = Math.min(scaleX, scaleY);
+        // Use Math.max to fill the screen completely (no black bars)
+        // All scene maps now have matching dimensions after regeneration
+        const scale = Math.max(scaleX, scaleY);
 
         map.setScale(scale);
 
@@ -43,6 +43,10 @@ export class GameScene extends Phaser.Scene {
         const offsetX = (screenWidth - scaledMapW) / 2;
         const offsetY = (screenHeight - scaledMapH) / 2;
         map.setPosition(offsetX, offsetY);
+
+        // Native Camera Bounds (Standard Phaser Implementation)
+        // Wraps the camera to the exact dimensions of the scaled map image.
+        this.cameras.main.setBounds(offsetX, offsetY, scaledMapW, scaledMapH);
 
         // Building bounds - Use Python-derived room positioning
         // These are source image pixel values from grid_config.json
