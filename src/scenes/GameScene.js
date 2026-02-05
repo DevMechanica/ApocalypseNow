@@ -676,7 +676,7 @@ export class GameScene extends Phaser.Scene {
         // Create Video with custom user offsets
         // Origin (0.5, 1) -> Bottom Center, aligned with floor line
         console.log('[DEBUG] Video code version: 2025-02-05-v2');
-        const video = this.add.video(centerX + 15, currentFloorY + 80, 'elevator_video');
+        const video = this.add.video(centerX + 15, currentFloorY + 115, 'elevator_video');
 
         // Scale to match the map's zoom level/resolution
         // Assuming video asset is created at same scale as map source
