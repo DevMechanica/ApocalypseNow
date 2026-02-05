@@ -357,15 +357,17 @@ def main():
     vertical_padding = VERTICAL_PADDING
     effective_floor_h = new_room_h + vertical_padding
     
-    # Underground Height Calculation logic mirror
-    top_margin = 100
-    last_room_y = top_margin + ((ug_floors - 1) * effective_floor_h)
-    trim_bottom = 90
-    ug_canvas_h = last_room_y + new_room_h - trim_bottom
+    # Underground Height Calculation - MATCH SURFACE BACKGROUND HEIGHT
+    # Use the same dimensions as the surface background for consistent zoom
+    surface_bg_w, surface_bg_h = assets['background_city'].size
     
-    print(f"Pre-generating Underground Background ({ref_bg_width}x{ug_canvas_h})...")
-    assets['ug_bg_scaled'] = assets['dirt_texture'].resize((ref_bg_width, ug_canvas_h), Image.Resampling.LANCZOS)
-    assets['ug_dims'] = (ref_bg_width, ug_canvas_h) # Cache dims
+    print(f"Pre-generating Underground Background ({surface_bg_w}x{surface_bg_h}) - matching surface...")
+    
+    # Simply stretch the dirt texture to match surface dimensions exactly
+    # This avoids tiling artifacts/seams
+    dirt_tex = assets['dirt_texture']
+    assets['ug_bg_scaled'] = dirt_tex.resize((surface_bg_w, surface_bg_h), Image.Resampling.LANCZOS)
+    assets['ug_dims'] = (surface_bg_w, surface_bg_h) # Cache dims
 
     # Generate Layouts in Parallel
     print("\nStarting Parallel Generation...")
