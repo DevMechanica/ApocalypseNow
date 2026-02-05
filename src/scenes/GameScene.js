@@ -772,8 +772,8 @@ export class GameScene extends Phaser.Scene {
         video.setOrigin(0.5, 1);
         video.setAlpha(0);
 
+
         let halfwayTriggered = false;
-        const exitPauseDuration = 500; // How long to pause for player to exit (ms)
 
         video.on('play', () => {
             this.time.delayedCall(100, () => {
@@ -818,35 +818,9 @@ export class GameScene extends Phaser.Scene {
 
                     if (onHalfway) onHalfway();
 
-                    if (pauseAtHalfway) {
-                        console.log('[Video] Pausing at halfway...');
-                        video.pause();
-                        // Resume after brief pause for player to exit
-                        this.time.delayedCall(exitPauseDuration, () => {
-                            console.log('[Video] Resuming after pause...');
-                            if (video.active) {
-                                video.play();
 
-                                // Get remaining duration for timeout
-                                const ct = video.getCurrentTime();
-                                const dur = video.getDuration();
-                                const remainingMs = (dur - ct) * 1000 + 500; // Add 500ms buffer
-                                console.log(`[Video] Remaining time: ${remainingMs}ms`);
-
-                                // TIMEOUT FALLBACK: Force complete after video should have ended
-                                this.time.delayedCall(remainingMs, () => {
-                                    console.log('[Video] Timeout fallback triggered');
-                                    if (video.active) {
-                                        video.destroy();
-                                    }
-                                    if (onComplete) onComplete();
-                                });
-                            } else {
-                                console.log('[Video] Video not active after pause, forcing complete');
-                                if (onComplete) onComplete();
-                            }
-                        });
-                    }
+                    // No pause - video continues, player just appears at halfway
+                    // The video will finish naturally and trigger 'complete' event
                 }
             }
         });
@@ -857,8 +831,17 @@ export class GameScene extends Phaser.Scene {
 
         video.on('complete', () => {
             checkHalfway.destroy();
-            video.destroy();
-            if (onComplete) onComplete();
+            // Fade out video before destroying
+            this.tweens.add({
+                targets: video,
+                alpha: 0,
+                duration: 500,
+                ease: 'Linear',
+                onComplete: () => {
+                    video.destroy();
+                    if (onComplete) onComplete();
+                }
+            });
         });
     }
 
