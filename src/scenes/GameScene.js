@@ -530,27 +530,33 @@ export class GameScene extends Phaser.Scene {
                 // Arrived at elevator
                 this.player.setVelocityX(0);
                 this.player.x = elevatorX;
-                this.playerState = 'IN_ELEVATOR';
-                this.player.setVisible(false); // Hide
 
-                // Start 2-second hold timer
-                this.time.delayedCall(2000, () => {
-                    if (this.playerState === 'IN_ELEVATOR') {
-                        // Teleport to target floor
-                        this.currentFloor = this.targetFloor;
-                        this.player.y = this.getPlayerGroundedY(this.targetFloor);
-                        this.player.setVisible(true); // Show
-                        this.playerState = 'IDLE';
+                // NEW: Wait Phase
+                this.playerState = 'WAITING_AT_ELEVATOR';
+                // Player remains visible while waiting
 
-                        // Resume RTS movement if pending
-                        if (this.rtsTargetX !== null) {
-                            this.targetPosition = new Phaser.Math.Vector2(this.rtsTargetX, this.getFloorY(this.targetFloor)); // Logic target stays on grid
-                            this.rtsTargetX = null;
-                        }
+                console.log('Player arrived at elevator. Waiting for cutscene...');
+
+                // Wait 1.5 seconds then play cutscene
+                this.time.delayedCall(1500, () => {
+                    if (this.playerState === 'WAITING_AT_ELEVATOR') {
+                        this.playElevatorCutscene(this.targetFloor);
                     }
                 });
             }
             return; // Block all other input
+        }
+
+        // State: Waiting for cutscene to start
+        if (this.playerState === 'WAITING_AT_ELEVATOR') {
+            this.player.setVelocity(0);
+            return;
+        }
+
+        // State: Watching Cutscene (Video Playing)
+        if (this.playerState === 'WATCHING_CUTSCENE') {
+            this.player.setVelocity(0);
+            return;
         }
 
         // State: Inside elevator (waiting for 2-second timer)
@@ -655,6 +661,205 @@ export class GameScene extends Phaser.Scene {
             this.player.setVelocityX(0);
             this.playerState = 'IDLE';
         }
+    }
+
+    playElevatorCutscene(targetFloor) {
+        // Switch state
+        this.playerState = 'WATCHING_CUTSCENE';
+
+        const travelDelay = 1500; // Time between floors (ms)
+
+        // --- PHASE 1: Departure Floor ---
+        // Set player depth HIGH so visible above video during entry
+        this.player.setDepth(1000);
+
+        // Player visible at start, hides at video halfway (enters elevator)
+        this.playElevatorVideo(this.currentFloor, {
+            onHalfway: () => {
+                // Player enters elevator at halfway point - fully hide
+                this.player.setVisible(false);
+                this.player.setAlpha(0);
+                this.player.setVelocity(0, 0); // Stop any movement
+                console.log('[Elevator] Player entered elevator');
+            },
+            onComplete: () => {
+                console.log('[Elevator] Phase 1 complete. Traveling...');
+
+                // Travel delay
+                this.time.delayedCall(travelDelay, () => {
+                    // Teleport player to target floor (still hidden)
+                    this.currentFloor = targetFloor;
+                    const newY = this.getPlayerGroundedY(targetFloor);
+
+                    // Position player at elevator (right side of building)
+                    const halfWidth = (this.player.width * this.player.scaleX) / 2;
+                    const elevatorX = this.buildingBounds.maxX - halfWidth;
+
+                    this.player.x = elevatorX;
+                    this.player.y = newY;
+                    this.player.setVelocity(0, 0);
+
+                    // --- PHASE 2: Arrival Floor ---
+                    // Video pauses at halfway, player appears, then video resumes
+                    this.playElevatorVideo(targetFloor, {
+                        pauseAtHalfway: true,
+                        onHalfway: () => {
+                            // Player exits elevator at halfway point - fully show
+                            // Set depth ABOVE video so player is visible
+                            this.player.setDepth(1000);
+                            this.player.setVisible(true);
+                            this.player.setAlpha(1);
+                            console.log('[Elevator] Player exited elevator');
+                        },
+                        onComplete: () => {
+                            console.log('[Elevator] Phase 2 complete. Sequence finished.');
+
+                            // CRITICAL: Re-snap player to floor after cutscene
+                            const finalY = this.getPlayerGroundedY(targetFloor);
+                            this.player.y = finalY;
+
+                            // Reset player depth to normal
+                            this.player.setDepth(100);
+
+                            // Sync physics body position and ensure it's active
+                            if (this.player.body) {
+                                this.player.body.reset(this.player.x, this.player.y);
+                                this.player.body.enable = true;
+                            }
+
+                            // Restore control - CRITICAL: Both state AND selection
+                            this.playerState = 'IDLE';
+                            this.selectedUnit = this.player; // Re-select so player can move
+                            this.player.setTint(0x00ff00); // Visual feedback for selection
+
+                            // Clear any stale movement targets
+                            this.targetPosition = null;
+
+                            console.log(`[Elevator] Player final position: (${this.player.x}, ${this.player.y})`);
+                            console.log(`[Elevator] playerState: ${this.playerState}, selectedUnit: ${this.selectedUnit ? 'set' : 'null'}`);
+
+                            // Resume RTS movement if pending
+                            if (this.rtsTargetX !== null) {
+                                const logicTargetY = this.getFloorY(targetFloor);
+                                this.targetPosition = new Phaser.Math.Vector2(this.rtsTargetX, logicTargetY);
+                                this.rtsTargetX = null;
+                            }
+
+                            console.log('Elevator sequence complete. Now on floor ' + targetFloor);
+                        }
+                    });
+                });
+            }
+        });
+    }
+
+    /**
+     * Helper: Play elevator video with halfway-point callbacks
+     * @param {number} floorIndex - Floor to position video at
+     * @param {Object} options - { onHalfway, onComplete, pauseAtHalfway }
+     */
+    playElevatorVideo(floorIndex, options = {}) {
+        const { onHalfway, onComplete, pauseAtHalfway } = options;
+
+        const floorY = this.getFloorY(floorIndex);
+        const buildingWidth = this.buildingBounds.maxX - this.buildingBounds.minX;
+        const centerX = this.buildingBounds.minX + (buildingWidth / 2);
+
+        console.log(`[Elevator] Playing video at floor ${floorIndex}`);
+        const video = this.add.video(centerX + 20, floorY + 115, 'elevator_video');
+
+        video.setScale(this.mapScale * 1.010);
+        video.setOrigin(0.5, 1);
+        video.setAlpha(0);
+
+        let halfwayTriggered = false;
+        const exitPauseDuration = 500; // How long to pause for player to exit (ms)
+
+        video.on('play', () => {
+            this.time.delayedCall(100, () => {
+                if (!video.active) return;
+
+                const vidW = video.width;
+                const vidH = video.height;
+
+                if (vidW > 0 && vidH > 0) {
+                    const cropX = vidW * 0.76;
+                    const cropY = vidH * 0.30;
+                    const cropW = vidW * 0.03;
+                    const cropH = vidH * 0.40;
+
+                    video.setCrop(cropX, cropY, cropW, cropH);
+
+                    this.tweens.add({
+                        targets: video,
+                        alpha: 1,
+                        duration: 300,
+                        ease: 'Linear'
+                    });
+                } else {
+                    video.setAlpha(1);
+                }
+            });
+        });
+
+        // Monitor video progress for halfway point
+        const checkHalfway = this.time.addEvent({
+            delay: 50, // Check every 50ms
+            loop: true,
+            callback: () => {
+                if (!video.active || halfwayTriggered) return;
+
+                const currentTime = video.getCurrentTime();
+                const duration = video.getDuration();
+
+                if (duration > 0 && currentTime >= duration / 2) {
+                    halfwayTriggered = true;
+                    checkHalfway.destroy();
+
+                    if (onHalfway) onHalfway();
+
+                    if (pauseAtHalfway) {
+                        console.log('[Video] Pausing at halfway...');
+                        video.pause();
+                        // Resume after brief pause for player to exit
+                        this.time.delayedCall(exitPauseDuration, () => {
+                            console.log('[Video] Resuming after pause...');
+                            if (video.active) {
+                                video.play();
+
+                                // Get remaining duration for timeout
+                                const ct = video.getCurrentTime();
+                                const dur = video.getDuration();
+                                const remainingMs = (dur - ct) * 1000 + 500; // Add 500ms buffer
+                                console.log(`[Video] Remaining time: ${remainingMs}ms`);
+
+                                // TIMEOUT FALLBACK: Force complete after video should have ended
+                                this.time.delayedCall(remainingMs, () => {
+                                    console.log('[Video] Timeout fallback triggered');
+                                    if (video.active) {
+                                        video.destroy();
+                                    }
+                                    if (onComplete) onComplete();
+                                });
+                            } else {
+                                console.log('[Video] Video not active after pause, forcing complete');
+                                if (onComplete) onComplete();
+                            }
+                        });
+                    }
+                }
+            }
+        });
+
+        // Set video depth BELOW player so player is visible in front during enter/exit
+        video.setDepth(999);
+        video.play(false);
+
+        video.on('complete', () => {
+            checkHalfway.destroy();
+            video.destroy();
+            if (onComplete) onComplete();
+        });
     }
 
     getFloorY(globalFloorIndex) {

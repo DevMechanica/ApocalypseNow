@@ -23,7 +23,7 @@ export const CONFIG = {
     aspectRatio: 9 / 16,
 
     // Debugging
-    devMode: true
+    devMode: false
 };
 
 export const CONSTANTS = {
