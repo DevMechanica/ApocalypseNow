@@ -35,5 +35,6 @@ The core logic and configuration hub of the game. It handles the game loop entry
 
 ## Coding Standards
 * **Config-First**: All magic numbers (costs, rates, speeds) must be in `config.js`, not hardcoded in logic.
+* **Grid Synchronization**: The grid placement logic in `GameScene.js` must stay in sync with `New_maps/create_bunker_map.py`. Use `grid_config.json` as the reference for all slot dimensions and asset offsets.
 * **Registry as Database**: The `gameState` object in the registry is the canonical state. Logic functions read it, modify it, and write it back.
 * **Manager Pattern**: Logic is encapsulated in Managers (e.g., `EconomyManager`) rather than being scattered in scenes.

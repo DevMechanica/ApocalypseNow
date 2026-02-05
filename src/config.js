@@ -139,7 +139,13 @@ export const ECONOMY = {
             buildCost: { materials: 100, caps: 50 },
             powerCost: 5,
             maxWorkers: 2,
-            production: { food: 5 },  // Per minute base
+            production: { food: 5 },  // Per minute base (Legacy)
+            resourceProducer: {
+                outputType: 'food',
+                amount: 1,
+                interval: 10000, // 10s
+                capacity: 18
+            },
             description: 'Grows food using water and power'
         },
         water_purifier: {
@@ -151,6 +157,12 @@ export const ECONOMY = {
             powerCost: 8,
             maxWorkers: 2,
             production: { water: 6 },
+            resourceProducer: {
+                outputType: 'water',
+                amount: 1,
+                interval: 15000, // 15s
+                capacity: 16
+            },
             description: 'Purifies contaminated water'
         },
         power_generator: {
@@ -161,6 +173,12 @@ export const ECONOMY = {
             powerCost: 0,  // Produces power
             maxWorkers: 2,
             production: { power: 10 },
+            resourceProducer: {
+                outputType: 'power',
+                amount: 5,
+                interval: 10000, // 10s
+                capacity: 50
+            },
             description: 'Generates electricity'
         },
         salvage_station: {
@@ -172,6 +190,12 @@ export const ECONOMY = {
             powerCost: 3,
             maxWorkers: 3,
             production: { materials: 3, caps: 1 },
+            resourceProducer: {
+                outputType: 'materials',
+                amount: 1,
+                interval: 12000, // 12s
+                capacity: 20
+            },
             description: 'Breaks down junk into materials'
         },
 
@@ -311,6 +335,16 @@ export const ECONOMY = {
                 firstRoomY: 100,       // grid_config.json -> scenes.underground.firstRoomY
                 floorLineOffset: 575   // grid_config.json -> scenes.underground.floorLineOffset
             }
+        },
+
+        // Grid Alignment Offsets (Source Pixels)
+        // *** SYNC WITH grid_config.json ***
+        slotSpacingFactor: 0.77,
+        assetOffsets: {
+            salvage_station: { x: -60, y: -220 },
+            water_purifier: { x: 0, y: -180 },
+            hydroponic_garden: { x: 0, y: -120 },
+            default: { x: 0, y: -150 }
         }
     },
 
@@ -445,5 +479,8 @@ export const INITIAL_GAME_STATE = {
     // Threats
     lastScout: 0,
     lastRaid: 0,
-    lastHorde: 0
+    lastHorde: 0,
+
+    // Settings
+    autoFarming: true
 };

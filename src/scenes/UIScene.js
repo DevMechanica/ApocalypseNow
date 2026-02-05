@@ -103,6 +103,106 @@ export class UIScene extends Phaser.Scene {
             this['text_' + key] = text;
         });
 
+        // --- NEW PREMIUM TOGGLE SWITCH ---
+        const materialsIndex = 4;
+        const materialsX = padding + (materialsIndex * spacing);
+        const toggleW = barWidth * 0.8;
+        const toggleH = barHeight * 0.9;
+        const toggleX = materialsX + iconSize + 4 + barWidth + 15;
+        const barH = Math.max(iconSize, barHeight);
+
+        const toggleBtn = this.add.container(toggleX + toggleW / 2, y + barH / 2);
+
+        // Track Background (Capsule)
+        const track = this.add.rectangle(0, 0, toggleW, toggleH, 0x111111)
+            .setStrokeStyle(1.5, 0x444444);
+
+        // Rounded corners for track (using graphics for better look if possible, but rectangle is fine for now)
+        // We can simulate rounded corners with a rectangle and a stroke if we want, but Phaser 3.60+ has setRounded
+        if (track.setPostPipeline) { // Simple check for newer phaser or just keep it simple
+            // track.setInteractive();
+        }
+
+        // Knob (Circle that slides)
+        const knobSize = toggleH * 0.8;
+        const knob = this.add.circle(-(toggleW / 2) + knobSize / 2 + 2, 0, knobSize / 2, 0x88ff88)
+            .setStrokeStyle(1, 0xffffff);
+
+        // Label Texture (Small text)
+        const label = this.add.text(0, toggleH / 2 + 10, 'AUTO', {
+            fontSize: `${Math.max(8, fontSize * 1.2)}px`,
+            fontStyle: 'bold',
+            color: '#88ff88'
+        }).setOrigin(0.5);
+
+        toggleBtn.add([track, knob, label]);
+        track.setInteractive({ useHandCursor: true });
+
+        const updateToggleVisual = (isAuto, animate = true) => {
+            const targetX = isAuto ? -(toggleW / 2) + knobSize / 2 + 2 : (toggleW / 2) - knobSize / 2 - 2;
+            const targetColor = isAuto ? 0x88ff88 : 0xff8888;
+            const labelText = isAuto ? 'AUTO' : 'MANUAL';
+
+            label.setText(labelText);
+            label.setColor(isAuto ? '#88ff88' : '#ff8888');
+
+            if (animate) {
+                this.tweens.add({
+                    targets: knob,
+                    x: targetX,
+                    duration: 150,
+                    ease: 'Power2'
+                });
+                this.tweens.addCounter({
+                    from: 0,
+                    to: 100,
+                    duration: 150,
+                    onUpdate: (tween) => {
+                        const v = tween.getValue() / 100;
+                        // Manual color interpolation is messy in vanilla phaser without plugins, 
+                        // so we just snap color at the end or use a halfway point
+                        if (v > 0.5) knob.setFillStyle(targetColor);
+                    }
+                });
+            } else {
+                knob.x = targetX;
+                knob.setFillStyle(targetColor);
+            }
+        };
+
+        track.on('pointerdown', () => {
+            const state = this.registry.get('gameState');
+            state.autoFarming = !state.autoFarming;
+            this.registry.set('gameState', state);
+            updateToggleVisual(state.autoFarming);
+
+            // AUTO-COLLECT if switched to Auto mode
+            if (state.autoFarming) {
+                const gameScene = this.scene.get(CONSTANTS.SCENES.GAME);
+                if (gameScene && gameScene.economy && gameScene.economy.resourceSystem) {
+                    gameScene.economy.resourceSystem.collectAll();
+                }
+            }
+
+            // Add a small scale "click" effect
+            this.tweens.add({
+                targets: toggleBtn,
+                scale: 0.95,
+                duration: 50,
+                yoyo: true
+            });
+
+            console.log(`Auto-Farming: ${state.autoFarming}`);
+        });
+
+        // Initialize state
+        const initialState = this.registry.get('gameState');
+        if (initialState) {
+            updateToggleVisual(initialState.autoFarming, false);
+        }
+
+        this.autoFarmingToggle = toggleBtn;
+
         // Initial update
         this.updateAllResources();
     }

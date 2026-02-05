@@ -62,6 +62,11 @@ export class PreloadScene extends Phaser.Scene {
         this.load.image('icon_settings', 'ui_icons/icon_settings.png');
         this.load.image('icon_map', 'ui_icons/icon_map.png');
         this.load.image('icon_build', 'ui_icons/icon_build.png');
+
+        // Room sprites
+        this.load.image('room_garden', 'Objects/Garden/hydroponic_garden.png');
+        this.load.image('room_water', 'Objects/WaterPurifier/water_purifier.png');
+        this.load.image('room_generator', 'Objects/Machines/scrap-v4.png');
     }
 
     create() {

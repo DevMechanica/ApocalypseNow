@@ -1,6 +1,8 @@
 import * as Phaser from 'phaser';
 import { CONSTANTS, CONFIG, ECONOMY } from '../config.js';
 import { EconomyManager } from '../economy.js';
+import { FloatingTextSystem } from '../systems/FloatingTextSystem.js';
+import { MAP_OBJECTS_CONFIG } from '../mapObjectsConfig.js';
 
 export class GameScene extends Phaser.Scene {
     constructor() {
@@ -16,9 +18,20 @@ export class GameScene extends Phaser.Scene {
     }
 
     create() {
+        // Room visual registry (key -> sprite)
+        this.roomVisuals = {};
+
         // Initialize Economy Manager
         this.economy = new EconomyManager(this);
         this.economy.init();
+
+        // Initialize Floating Text System
+        this.floatingTextSystem = new FloatingTextSystem(this);
+
+        // Detect and register pre-placed objects from the map
+        this.time.delayedCall(500, () => {
+            this.detectMapObjects();
+        });
 
         // 1. Setup World/Map - Scale to fit screen (show full width)
         const mapKey = this.sceneConfig.asset;
@@ -132,6 +145,10 @@ export class GameScene extends Phaser.Scene {
         this.elevatorGlow.setBlendMode(Phaser.BlendModes.ADD); // Glow effect
         this.elevatorGlow.setDepth(50); // Behind player but above map
         this.elevatorGlow.setVisible(false);
+
+        // Resource Manual Farming Indicators
+        this.indicators = {};
+        this.events.on('manualHarvestReady', this.showHarvestIndicator, this);
 
         // 4. Camera Setup - Static view (no ZOOM by default)
         // Reset bounds to match screen
@@ -298,10 +315,49 @@ export class GameScene extends Phaser.Scene {
     }
 
     handleTap(pointer) {
-        // Logic for Unit Selection / Movement
+        // Logic for Unit Selection / Movement / Collection
         const worldPoint = pointer.positionToCamera(this.cameras.main);
 
-        // 1. Selector Logic
+        // 1. Check for Machine Collection (Manual Mode)
+        const state = this.registry.get('gameState');
+        if (state && !state.autoFarming) {
+            // Check each registered room visual
+            for (const [key, visual] of Object.entries(this.roomVisuals)) {
+                // If visual is a real image/rectangle, check its bounds
+                // If it's a mock, we can check proximity to its x,y
+                const isHit = visual.getBounds ?
+                    visual.getBounds().contains(worldPoint.x, worldPoint.y) :
+                    Phaser.Math.Distance.Between(worldPoint.x, worldPoint.y, visual.x, visual.y) < 50;
+
+                if (isHit) {
+                    console.log(`[GameScene] Clicked machine: ${key}`);
+                    if (this.economy && this.economy.resourceSystem) {
+                        // In manual mode, clicking the machine "farms" it (immediate production)
+                        const farmed = this.economy.resourceSystem.farmFromRoom(key);
+
+                        // Also try to collect anything that was already stored
+                        const collected = this.economy.resourceSystem.collectFromRoom(key);
+
+                        if (farmed || collected) {
+                            // Clear indicator (if any)
+                            this.clearHarvestIndicator(key);
+
+                            // Trigger feedback animation on the machine
+                            this.tweens.add({
+                                targets: visual,
+                                scaleX: visual.scaleX * 1.1,
+                                scaleY: visual.scaleY * 1.1,
+                                duration: 100,
+                                yoyo: true
+                            });
+                            return; // Success, don't move
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Selector Logic
         // Use bounds check for better accuracy with origin (0.5, 1)
         const bounds = this.player.getBounds();
 
@@ -797,5 +853,190 @@ export class GameScene extends Phaser.Scene {
 
         // Add to texture manager
         textureManager.addCanvas('player_processed', canvas);
+    }
+
+    /**
+     * Get position for a room slot (for floating text)
+     * @param {number} floor - Floor number
+     * @param {number} slot - Starting slot number
+     * @param {number} width - Width in slots (default 1)
+     */
+    showHarvestIndicator(data) {
+        if (this.indicators[data.key]) return;
+
+        const { x, y } = data.source;
+
+        // Resource-specific scaling
+        const scale = (data.type === 'water' || data.type === 'materials') ? 0.04 : 0.08;
+
+        const icon = this.add.image(x, y - 100, `icon_${data.type === 'power' ? 'energy' : (data.type === 'caps' ? 'cash' : data.type)}`)
+            .setScale(scale)
+            .setAlpha(0);
+
+        this.tweens.add({
+            targets: icon,
+            alpha: 1,
+            y: y - 120,
+            duration: 500,
+            ease: 'Back.easeOut'
+        });
+
+        // Add a floating animation
+        this.tweens.add({
+            targets: icon,
+            y: y - 50,
+            duration: 2000,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut'
+        });
+
+        this.indicators[data.key] = icon;
+    }
+
+    clearHarvestIndicator(key) {
+        if (this.indicators[key]) {
+            const icon = this.indicators[key];
+            this.tweens.add({
+                targets: icon,
+                scale: 0,
+                alpha: 0,
+                duration: 200,
+                onComplete: () => {
+                    icon.destroy();
+                }
+            });
+            delete this.indicators[key];
+        }
+    }
+
+    getSlotPosition(floor, slot, width = 1) {
+        const key = `${floor}_${slot}`;
+        if (this.roomVisuals[key]) {
+            return { x: this.roomVisuals[key].x, y: this.roomVisuals[key].y };
+        }
+
+        const floorY = this.getFloorY(floor);
+
+        // Grid constants from config.js (synchronized with grid_config.json)
+        const slots = ECONOMY.FLOOR.slots || 8;
+        const slotSpacingFactor = ECONOMY.FLOOR.slotSpacingFactor || 0.77;
+
+        // buildingBounds already accounts for GRID_PADDING_RATIO
+        const gridStartX = this.buildingBounds.minX;
+        const availableWidth = this.buildingBounds.maxX - this.buildingBounds.minX;
+        const slotPx = availableWidth / slots;
+        const spacingSlotPx = slotPx * slotSpacingFactor;
+
+        // Calculate center of the machine
+        // MATCH PYTHON: Center_X = grid_start_x + (slot * spacing_slot_px) + (slot_px * width) / 2 + x_offset_px
+        let assetCenterX = gridStartX + (slot * spacingSlotPx) + ((width * slotPx) / 2);
+
+        // Apply asset-specific X and Y offsets from config.js
+        const state = this.registry.get('gameState');
+        const roomData = state?.rooms?.[key];
+        const offsets = ECONOMY.FLOOR.assetOffsets;
+        let activeOffset = offsets.default;
+
+        if (roomData && offsets[roomData.type]) {
+            activeOffset = offsets[roomData.type];
+        }
+
+        assetCenterX += activeOffset.x * this.mapScale;
+        return { x: assetCenterX, y: floorY + (activeOffset.y * this.mapScale) };
+    }
+
+    /**
+     * Create visual sprite for a room
+     */
+    createRoomVisual(floor, slot, roomType) {
+        const key = `${floor}_${slot}`;
+        const roomDef = ECONOMY.ROOM_TYPES[roomType];
+
+        // Get position
+        const floorY = this.getFloorY(floor);
+        const slotWidth = (this.buildingBounds.maxX - this.buildingBounds.minX) / 8;
+        const roomX = this.buildingBounds.minX + (slotWidth * slot) + (slotWidth / 2);
+        const roomY = floorY - 100; // Above floor line
+
+        // Determine sprite key based on room type
+        let spriteKey = null;
+        if (roomType === 'hydroponic_garden') {
+            spriteKey = 'room_garden';
+        } else if (roomType === 'water_purifier') {
+            spriteKey = 'room_water';
+        } else if (roomType === 'power_generator') {
+            spriteKey = 'room_generator';
+        }
+
+        if (spriteKey && this.textures.exists(spriteKey)) {
+            const sprite = this.add.image(roomX, roomY, spriteKey);
+            sprite.setScale(this.mapScale * 0.5); // Adjust scale as needed
+            this.roomVisuals[key] = sprite;
+            return sprite;
+        }
+
+        // Fallback: create placeholder
+        const placeholder = this.add.rectangle(roomX, roomY, 100, 100, 0x00ff00, 0.3);
+        this.roomVisuals[key] = placeholder;
+        return placeholder;
+    }
+
+    /**
+     * Detect pre-placed objects on the map and register them as producers
+     */
+    detectMapObjects() {
+        console.log('[MapDetection] Scanning for pre-placed objects...');
+
+        const sceneObjects = MAP_OBJECTS_CONFIG[this.sceneId];
+        if (!sceneObjects) {
+            console.log('[MapDetection] No objects configured for this scene');
+            return;
+        }
+
+        let detectedCount = 0;
+
+        // Iterate through floors in this scene
+        Object.entries(sceneObjects).forEach(([floorStr, objects]) => {
+            const floor = parseInt(floorStr);
+
+            objects.forEach(obj => {
+                const key = `${floor}_${obj.slot}`;
+
+                // Calculate position for this object (with proper width)
+                const position = this.getSlotPosition(floor, obj.slot, obj.width);
+
+                // Create a mock visual object (since it's baked into the map)
+                const mockVisual = { x: position.x, y: position.y };
+                this.roomVisuals[key] = mockVisual;
+
+                // Add to gameState if not already there
+                const state = this.registry.get('gameState');
+                if (state) {
+                    if (!state.rooms[key]) {
+                        state.rooms[key] = {
+                            type: obj.type,
+                            level: 1,
+                            workers: [],
+                            health: 100,
+                            width: obj.width // Store width for position calculation
+                        };
+                    } else {
+                        // Update width for existing rooms (in case they were created before width tracking)
+                        state.rooms[key].width = obj.width;
+                    }
+                    this.registry.set('gameState', state);
+                }
+
+                // Register with resource system
+                if (this.economy && this.economy.resourceSystem) {
+                    this.economy.resourceSystem.registerRoom(key, state.rooms[key]);
+                    detectedCount++;
+                    console.log(`[MapDetection] Registered ${obj.type} at floor ${floor}, slot ${obj.slot}, width ${obj.width}`);
+                }
+            });
+        });
+
+        console.log(`[MapDetection] Complete! Detected ${detectedCount} objects`);
     }
 }

@@ -1,4 +1,5 @@
 import { ECONOMY, INITIAL_GAME_STATE } from './config.js';
+import { ResourceSystem } from './systems/ResourceSystem.js';
 
 /**
  * EconomyManager - Handles idle resource production, survivor upkeep, and game ticks
@@ -8,6 +9,7 @@ export class EconomyManager {
         this.scene = scene;
         this.tickInterval = 1000;  // 1 second ticks
         this.lastTick = Date.now();
+        this.resourceSystem = new ResourceSystem(scene);
     }
 
     /**
@@ -17,6 +19,7 @@ export class EconomyManager {
         if (!this.scene.registry.get('gameState')) {
             this.scene.registry.set('gameState', JSON.parse(JSON.stringify(INITIAL_GAME_STATE)));
         }
+        this.resourceSystem.init();
         this.startTicking();
     }
 
@@ -46,7 +49,8 @@ export class EconomyManager {
         state.playTime += delta;
 
         // Process production from rooms
-        this.processRoomProduction(state, delta);
+        // this.processRoomProduction(state, delta); // Legacy method
+        this.resourceSystem.update(delta);
 
         // Process survivor upkeep
         this.processSurvivorUpkeep(state, delta);
@@ -190,6 +194,15 @@ export class EconomyManager {
 
         this.scene.registry.set('gameState', state);
         console.log(`Built ${roomDef.name} at floor ${floor}, slot ${slot}`);
+
+        // Create visual sprite if GameScene has the method
+        if (this.scene.createRoomVisual) {
+            this.scene.createRoomVisual(floor, slot, roomType);
+        }
+
+        // Register with resource system
+        this.resourceSystem.registerRoom(key, state.rooms[key]);
+
         return true;
     }
 
