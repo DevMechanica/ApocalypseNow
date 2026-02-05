@@ -67,6 +67,10 @@ export class PreloadScene extends Phaser.Scene {
         this.load.image('room_garden', 'Objects/Garden/hydroponic_garden.png');
         this.load.image('room_water', 'Objects/WaterPurifier/water_purifier.png');
         this.load.image('room_generator', 'Objects/Machines/scrap-v4.png');
+
+        // Video Assets
+        // Note: Filename contains spaces/parentheses. Ensure server serves this correctly.
+        this.load.video('elevator_video', 'cutscenes/elevator_cutscene.mp4');
     }
 
     create() {

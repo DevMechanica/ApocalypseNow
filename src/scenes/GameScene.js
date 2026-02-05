@@ -530,27 +530,33 @@ export class GameScene extends Phaser.Scene {
                 // Arrived at elevator
                 this.player.setVelocityX(0);
                 this.player.x = elevatorX;
-                this.playerState = 'IN_ELEVATOR';
-                this.player.setVisible(false); // Hide
 
-                // Start 2-second hold timer
-                this.time.delayedCall(2000, () => {
-                    if (this.playerState === 'IN_ELEVATOR') {
-                        // Teleport to target floor
-                        this.currentFloor = this.targetFloor;
-                        this.player.y = this.getPlayerGroundedY(this.targetFloor);
-                        this.player.setVisible(true); // Show
-                        this.playerState = 'IDLE';
+                // NEW: Wait Phase
+                this.playerState = 'WAITING_AT_ELEVATOR';
+                // Player remains visible while waiting
 
-                        // Resume RTS movement if pending
-                        if (this.rtsTargetX !== null) {
-                            this.targetPosition = new Phaser.Math.Vector2(this.rtsTargetX, this.getFloorY(this.targetFloor)); // Logic target stays on grid
-                            this.rtsTargetX = null;
-                        }
+                console.log('Player arrived at elevator. Waiting for cutscene...');
+
+                // Wait 1.5 seconds then play cutscene
+                this.time.delayedCall(1500, () => {
+                    if (this.playerState === 'WAITING_AT_ELEVATOR') {
+                        this.playElevatorCutscene(this.targetFloor);
                     }
                 });
             }
             return; // Block all other input
+        }
+
+        // State: Waiting for cutscene to start
+        if (this.playerState === 'WAITING_AT_ELEVATOR') {
+            this.player.setVelocity(0);
+            return;
+        }
+
+        // State: Watching Cutscene (Video Playing)
+        if (this.playerState === 'WATCHING_CUTSCENE') {
+            this.player.setVelocity(0);
+            return;
         }
 
         // State: Inside elevator (waiting for 2-second timer)
@@ -655,6 +661,100 @@ export class GameScene extends Phaser.Scene {
             this.player.setVelocityX(0);
             this.playerState = 'IDLE';
         }
+    }
+
+    playElevatorCutscene(targetFloor) {
+        // Switch state
+        this.playerState = 'WATCHING_CUTSCENE';
+        this.player.setVisible(false); // Hide player, video takes over
+
+        // Calculate Position
+        const currentFloorY = this.getFloorY(this.currentFloor);
+        const buildingWidth = this.buildingBounds.maxX - this.buildingBounds.minX;
+        const centerX = this.buildingBounds.minX + (buildingWidth / 2);
+
+        // Create Video with custom user offsets
+        // Origin (0.5, 1) -> Bottom Center, aligned with floor line
+        console.log('[DEBUG] Video code version: 2025-02-05-v2');
+        const video = this.add.video(centerX + 15, currentFloorY + 80, 'elevator_video');
+
+        // Scale to match the map's zoom level/resolution
+        // Assuming video asset is created at same scale as map source
+        video.setScale(this.mapScale);
+        video.setOrigin(0.5, 1);
+
+        // Start invisible to prevent "flash" of uncropped/black frame
+        video.setAlpha(0);
+
+        // --- ROBUST CROP FIX ---
+        // We wait for the 'play' event to ensure the video text/dimensions are loaded.
+        // Applying setCrop immediately on creation was causing the video to disappear (0 dimensions).
+        video.on('play', () => {
+            // Delay slightly to allow texture to update
+            this.time.delayedCall(100, () => {
+                if (!video.active) return; // Video might have been destroyed
+
+                const vidW = video.width;
+                const vidH = video.height;
+
+                console.log(`[GameScene] Video playing. Dimensions: ${vidW}x${vidH}`);
+
+                if (vidW > 0 && vidH > 0) {
+                    // ESTIMATED CROP VALUES (User Tweaked)
+                    // User asked for "horizontally and vertically much more vertically"
+                    // Top/Bottom: Remove 20% each (keep middle 60%)
+                    // Left/Right: Remove 5% each (keep middle 90%)
+
+                    const cropX = vidW * 0.05;
+                    const cropY = vidH * 0.24; // User tweaked to 0.24
+                    const cropW = vidW * 0.90; // Keep 90% width
+                    const cropH = vidH * 0.49; // User tweaked to 0.49
+
+                    console.log(`[GameScene] Applying Crop: x=${cropX}, y=${cropY}, w=${cropW}, h=${cropH}`);
+
+                    video.setCrop(cropX, cropY, cropW, cropH);
+
+                    // Fade In Smoothly
+                    this.tweens.add({
+                        targets: video,
+                        alpha: 1,
+                        duration: 300,
+                        ease: 'Linear'
+                    });
+
+                } else {
+                    console.warn(`[GameScene] Invalid video dimensions: ${vidW}x${vidH}`);
+                    // Fallback: Show anyway if dimensions fail (unlikely)
+                    video.setAlpha(1);
+                }
+            });
+        });
+
+        // Ensure video is above map but below UI
+        video.setDepth(this.player.depth + 1);
+
+        video.play(false); // Loop = false
+
+        video.on('complete', () => {
+            video.destroy();
+
+            // --- TELEPORT LOGIC (From previous implementation) ---
+            this.currentFloor = targetFloor;
+            const newY = this.getPlayerGroundedY(targetFloor);
+            this.player.y = newY;
+            this.player.setVisible(true);
+            this.playerState = 'IDLE';
+
+            // Resume RTS movement if pending
+            if (this.rtsTargetX !== null) {
+                // Determine logic target Y
+                const logicTargetY = this.getFloorY(targetFloor);
+                this.targetPosition = new Phaser.Math.Vector2(this.rtsTargetX, logicTargetY);
+                this.rtsTargetX = null;
+            }
+
+            console.log('Cutscene complete. Teleported to floor ' + targetFloor);
+        });
     }
 
     getFloorY(globalFloorIndex) {
