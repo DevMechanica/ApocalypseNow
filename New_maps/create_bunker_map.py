@@ -232,24 +232,25 @@ def generate_scene(scene_data, assets, output_dir):
                 
                 # Objects (Same logic as before)
                 if i == 0:
-                    if 'garden' in assets:
-                         place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 0, 2, "Plant 1")
-                         place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 2, 2, "Plant 2")
-                         place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 4, 2, "Plant 3")
-                         place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 6, 2, "Plant 4")
+                    # if 'garden' in assets:
+                    #      place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 0, 2, "Plant 1")
+                    #      place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 2, 2, "Plant 2")
+                    #      place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 4, 2, "Plant 3")
+                    #      place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 6, 2, "Plant 4")
+                    pass
                 if i == 1:
-                    if 'garden' in assets:
-                         place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 0, 2, "Plant 1")
-                         place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 2, 2, "Plant 2")
-                         place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 4, 2, "Plant 3")
+                    # if 'garden' in assets:
+                    #      place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 0, 2, "Plant 1")
+                    #      place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 2, 2, "Plant 2")
+                    #      place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 4, 2, "Plant 3")
                     if 'water_purifier' in assets:
                          place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['water_purifier'], 6, 2, "Water Purifier")
                 if i == 2:
                     if 'scrap_machine' in assets:
                          place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['scrap_machine'], 0, 4, "Scrap Machine")
-                    if 'garden' in assets:
-                         place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 4, 2, "Plant 1")
-                         place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 6, 2, "Plant 2")
+                    # if 'garden' in assets:
+                    #      place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 4, 2, "Plant 1")
+                    #      place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['garden'], 6, 2, "Plant 2")
                 if i == 3:
                      if 'scrap_machine' in assets:
                          place_object(full_bg, (room_x, pos_y, new_room_w, new_room_h), assets['scrap_machine'], 0, 4, "Scrap Machine")
@@ -319,12 +320,16 @@ def main():
                 assets['water_purifier'] = remove_background_floodfill(img)
             except: pass
 
-        obj_garden_path = os.path.join(project_root, "Objects", "Garden", "hydroponic_plants_v2.png")
-        if os.path.exists(obj_garden_path):
-            try:
-                img = Image.open(obj_garden_path).convert('RGBA')
-                assets['garden'] = remove_background_floodfill(img)
-            except: pass
+        # obj_garden_path = os.path.join(project_root, "Objects", "Cutscenes", "Garden", "download (31).mp4")
+        # if os.path.exists(obj_garden_path):
+        #     if obj_garden_path.endswith('.mp4'):
+        #         print(f"Video asset detected for Garden: {obj_garden_path} - Skipping static bake.")
+        #         # parsed_assets['garden'] will remain unset, so it won't be drawn
+        #     else:
+        #         try:
+        #             img = Image.open(obj_garden_path).convert('RGBA')
+        #             assets['garden'] = remove_background_floodfill(img)
+        #         except: pass
             
         
     except Exception as e:

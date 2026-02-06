@@ -15,6 +15,7 @@ An offline Python asset pipeline that generates high-resolution composite maps f
 ## Architecture & Data Flow
 * **Inputs**:
     * Source Assets: `Objects/`, `bunker_map_composite.png` (background), `EmptyRoomAsset_...png`.
+    * **Note**: Video assets (e.g. Garden cutscene) are detected and **skipped** during baking to allow runtime rendering.
 * **Outputs**:
     * `bunker_map_composite.png`: The final image loaded by Phaser.
 * **State**:

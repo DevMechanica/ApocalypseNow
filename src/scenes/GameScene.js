@@ -4,6 +4,27 @@ import { EconomyManager } from '../economy.js';
 import { FloatingTextSystem } from '../systems/FloatingTextSystem.js';
 import { MAP_OBJECTS_CONFIG } from '../mapObjectsConfig.js';
 
+// --- SHARED GRID CONFIGURATION (from grid_config.json) ---
+const GRID_CONFIG = {
+    slots: 8,
+    positionPaddingRatio: 0.12,
+    assetScaleFactor: 1.00,
+    slotSpacingFactor: 0.77,
+    roomWidth: 1948,
+    roomHeight: 679,
+    floorLineOffset: 590,
+    // Note: Python uses source sizes (1024x357 room), we use scaled sizes
+    // These offsets are relative to the target asset size
+    assetYOffsets: {
+        garden: -25,
+        water_purifier: -1,
+        scrap_machine: 90
+    },
+    assetScales: {
+        scrap_machine: 0.80
+    }
+};
+
 export class GameScene extends Phaser.Scene {
     constructor() {
         super(CONSTANTS.SCENES.GAME);
@@ -775,9 +796,47 @@ export class GameScene extends Phaser.Scene {
 
         let halfwayTriggered = false;
 
+        // Ensure ChromaKey PostFX Pipeline is registered (may already be registered by garden video)
+        if (!this.game.registry.get('ChromaKeyPipelineClass')) {
+            class ChromaKeyPipeline extends Phaser.Renderer.WebGL.Pipelines.PostFXPipeline {
+                constructor(game) {
+                    super({
+                        game: game,
+                        fragShader: `
+                            precision mediump float;
+                            uniform sampler2D uMainSampler;
+                            varying vec2 outTexCoord;
+                            
+                            void main(void) {
+                                vec4 color = texture2D(uMainSampler, outTexCoord);
+                                
+                                // Target color: White (RGB ~1.0)
+                                // Calculate luminance for better white detection
+                                float luminance = dot(color.rgb, vec3(0.299, 0.587, 0.114));
+                                
+                                // If pixel is very bright (close to white)
+                                if (luminance > 0.85 && color.r > 0.8 && color.g > 0.8 && color.b > 0.8) {
+                                    color.a = 0.0;
+                                }
+                                
+                                gl_FragColor = color;
+                            }
+                        `
+                    });
+                }
+            }
+
+            // Register the pipeline class
+            this.game.renderer.pipelines.addPostPipeline('ChromaKeyFX', ChromaKeyPipeline);
+            this.game.registry.set('ChromaKeyPipelineClass', true);
+            console.log('[Elevator] ChromaKey PostFX pipeline registered');
+        }
+
         video.on('play', () => {
             this.time.delayedCall(100, () => {
                 if (!video.active) return;
+                video.setPostPipeline('ChromaKeyFX');
+                console.log('[Elevator] ChromaKey PostFX applied');
 
                 const vidW = video.width;
                 const vidH = video.height;
@@ -1141,6 +1200,85 @@ export class GameScene extends Phaser.Scene {
     /**
      * Create visual sprite for a room
      */
+    calculateGridTransform(floor, slot, slotWidthSlots, assetName, assetWidth, assetHeight) {
+        // Core Grid Constants (matching Python script)
+        const posPaddingRatio = GRID_CONFIG.positionPaddingRatio;
+        const numSlots = GRID_CONFIG.slots;
+        const assetScale = GRID_CONFIG.assetScaleFactor;
+        const slotSpacing = GRID_CONFIG.slotSpacingFactor;
+
+        // Use pre-calculated building bounds from create()
+        // NOTE: buildingBounds in create() ALREADY accounts for positionPaddingRatio!
+        // It represents the "innerRoom" / "grid area".
+        const gridStartX = this.buildingBounds.minX;
+        const availableWidth = this.buildingBounds.maxX - this.buildingBounds.minX;
+
+        // 1. Grid Metrics
+        // availableWidth is already the inner width
+        const slotPx = availableWidth / numSlots;
+
+        // 2. Target Dimensions
+        // Python: base_target_w = slot_px * slot_width_slots
+        const baseTargetW = slotPx * slotWidthSlots;
+
+        // Python: target_w = base_target_w * final_scale_factor
+        let individualScale = 1.0;
+        if (assetName === 'scrap_machine') individualScale = GRID_CONFIG.assetScales.scrap_machine || 1.0;
+
+        // User requested "hard math" to match visual size of hydroponic_plants_v2.png (1024x1024)
+        // Reference is Square (1:1). Animation is Tall (921x1080).
+        // To match Height, we scale by (Width / Height) of the animation -> 921 / 1080 = 0.852777...
+        // This ensures the Animation Height equals the Reference Height at the same slot width.
+        const manualSizeAdjustment = 921 / 1080;
+
+        const finalScaleFactor = assetScale * individualScale * manualSizeAdjustment;
+        const targetW = baseTargetW * finalScaleFactor;
+
+        // Calculate Scale to fit Target Width
+        // Python: scale = target_w / asset_image.width
+        const scale = targetW / assetWidth;
+        const targetH = assetHeight * scale;
+
+        // 3. Position Calculation
+        // Python: spacing_slot_px = slot_px * slot_spacing
+        const spacingSlotPx = slotPx * slotSpacing
+
+        // Python: slot_center_offset = (target_w - base_target_w) / 2
+        const slotCenterOffset = (targetW - baseTargetW) / 2;
+
+        // Position Y: getFloorY() returns the absolute Floor Line Y
+        const floorLineY = this.getFloorY(floor);
+
+        // Determine Y and X Offsets based on asset type (from GRID_CONFIG)
+        let yOffsetPx = 0;
+        let xOffsetPx = 0;
+        if (assetName === 'garden') yOffsetPx = GRID_CONFIG.assetYOffsets.garden || 0;
+        if (assetName === 'scrap_machine') xOffsetPx = GRID_CONFIG.assetXOffsets.scrap_machine || 0;
+
+        // Calculate scaled offsets using mapScale
+        const preciseScaledYOffset = yOffsetPx * this.mapScale;
+        const preciseScaledXOffset = xOffsetPx * this.mapScale;
+
+        // Standard Grid aligns Frame Bottoms to floor line
+        const drawX = gridStartX + (slot * spacingSlotPx) - slotCenterOffset + preciseScaledXOffset;
+        const centerX = drawX + (targetW / 2);
+
+        // Final Y (Standard Frame-Bottom Align)
+        // Center Y = (FloorLineY + ScaledOffset) - (TargetH / 2)
+        const centerY = floorLineY + preciseScaledYOffset - (targetH / 2);
+
+        // MANUAL CALIBRATION V3.2
+        // Corrected Floor Alignment (+1 Floor Fix)
+        const manualCalibrationX = 18;
+        const manualCalibrationY = 5;
+
+        return {
+            x: centerX + manualCalibrationX,
+            y: centerY + manualCalibrationY,
+            scale: scale
+        };
+    }
+
     createRoomVisual(floor, slot, roomType) {
         const key = `${floor}_${slot}`;
         const roomDef = ECONOMY.ROOM_TYPES[roomType];
@@ -1154,7 +1292,44 @@ export class GameScene extends Phaser.Scene {
         // Determine sprite key based on room type
         let spriteKey = null;
         if (roomType === 'hydroponic_garden') {
-            spriteKey = 'room_garden';
+            // ANIMATED SPRITE SHEET: Garden animation with transparent background
+            if (this.textures.exists('garden_anim')) {
+                // Create animation if not already created
+                if (!this.anims.exists('garden_loop')) {
+                    this.anims.create({
+                        key: 'garden_loop',
+                        frames: this.anims.generateFrameNumbers('garden_anim'),
+                        frameRate: 12,
+                        repeat: -1
+                    });
+                    console.log('[Garden] Animation created');
+                }
+
+                // Create animated sprite
+                const gardenSprite = this.add.sprite(0, 0, 'garden_anim');
+
+                // USE PRECISION GRID SYSTEM
+                // Garden occupies 2 slots
+                const transform = this.calculateGridTransform(
+                    floor,
+                    slot,
+                    2,
+                    'garden',
+                    921,  // Frame Width (from sprite sheet)
+                    1080  // Frame Height
+                );
+
+                gardenSprite.setPosition(transform.x, transform.y);
+                gardenSprite.setScale(transform.scale);
+                gardenSprite.play('garden_loop');
+
+                this.roomVisuals[key] = gardenSprite;
+                console.log(`[Garden] Animated sprite created at (${roomX}, ${roomY})`);
+                return gardenSprite;
+            } else {
+                console.warn('Garden sprite sheet not found, falling back to static image');
+                spriteKey = 'room_garden';
+            }
         } else if (roomType === 'water_purifier') {
             spriteKey = 'room_water';
         } else if (roomType === 'power_generator') {
@@ -1198,9 +1373,16 @@ export class GameScene extends Phaser.Scene {
                 // Calculate position for this object (with proper width)
                 const position = this.getSlotPosition(floor, obj.slot, obj.width);
 
-                // Create a mock visual object (since it's baked into the map)
-                const mockVisual = { x: position.x, y: position.y };
-                this.roomVisuals[key] = mockVisual;
+                // SPECIAL HANDLING: For hydroponic_garden, create actual video visual
+                if (obj.type === 'hydroponic_garden') {
+                    // Use createRoomVisual which handles video rendering
+                    const visual = this.createRoomVisual(floor, obj.slot, obj.type);
+                    // createRoomVisual already sets this.roomVisuals[key]
+                } else {
+                    // Create a mock visual object (since it's baked into the map)
+                    const mockVisual = { x: position.x, y: position.y };
+                    this.roomVisuals[key] = mockVisual;
+                }
 
                 // Add to gameState if not already there
                 const state = this.registry.get('gameState');

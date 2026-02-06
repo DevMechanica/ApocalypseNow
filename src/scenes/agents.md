@@ -36,6 +36,7 @@ Grid values are defined in **`grid_config.json`** at the project root. Both Pyth
 * **Background Removal**: Assets use **chroma key** (white background removal, threshold ~230-240).
 * **Color Palette**: Muted, industrial tones. No overly vibrant colors.
 * **Asset Requirements**: PNGs with white backgrounds. Script handles transparency.
+* **Mixed Media**: Certain rooms (e.g. Hydroponic Garden) use looping video textures (.mp4) for enhanced visuals.
 
 ## Architecture & Data Flow
 * **Inputs**:
