@@ -18,6 +18,7 @@ export class UIScene extends Phaser.Scene {
         this.createPausePopup();
         this.createMapPopup();
         this.createSettingsPopup();
+        this.createCancelBuildButton(); // Add Cancel Button initialization
         this.createTooltip();
 
         // Listen for economy updates
@@ -365,7 +366,7 @@ export class UIScene extends Phaser.Scene {
         return { container, windowW, windowH };
     }
 
-    createBuildPopup() {
+    createBuildPopup_OLD() {
         const { container, windowW, windowH } = this.createPopupWindow('Build Menu');
         this.buildPopup = container;
 
@@ -419,7 +420,16 @@ export class UIScene extends Phaser.Scene {
             // Click handler
             slot.on('pointerdown', () => {
                 console.log(`Selected room: ${room.name}`);
-                // TODO: Implement room placement
+                const gameScene = this.scene.get(CONSTANTS.SCENES.GAME);
+                if (gameScene) {
+                    // Emit event to start building mode
+                    gameScene.events.emit('START_BUILDING', { roomType: key, roomData: room });
+
+                    // Close the build menu
+                    if (this.buildPopup) {
+                        this.buildPopup.setVisible(false);
+                    }
+                }
             });
 
             this.buildPopup.add(slot);
@@ -632,5 +642,167 @@ export class UIScene extends Phaser.Scene {
                 }
             });
         });
+    }
+    createBuildPopup() {
+        // Use a larger window for the build menu
+        const width = this.cameras.main.width;
+        const height = this.cameras.main.height;
+        const windowW = width * 0.95;
+        const windowH = height * 0.85;
+
+        const container = this.add.container(0, 0);
+        container.setVisible(false);
+        container.setDepth(100);
+        this.buildPopup = container;
+
+        // Overlay
+        const overlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.8)
+            .setInteractive();
+
+        overlay.on('pointerdown', () => {
+            container.setVisible(false);
+        });
+        container.add(overlay);
+
+        // Window Background
+        const bg = this.add.rectangle(width / 2, height / 2, windowW, windowH, 0x1a2130)
+            .setStrokeStyle(4, 0x4a5a75)
+            .setInteractive();
+        container.add(bg);
+
+        // Title
+        const titleText = this.add.text(width / 2, height / 2 - windowH / 2 + 30, 'CONSTRUCTION', {
+            fontSize: '24px',
+            fontFamily: 'Arial',
+            color: '#ffffff',
+            fontStyle: 'bold'
+        }).setOrigin(0.5);
+        container.add(titleText);
+
+        // Close Button
+        const closeBtn = this.add.text(width / 2 + windowW / 2 - 30, height / 2 - windowH / 2 + 30, 'X', {
+            fontSize: '24px',
+            fontFamily: 'Arial',
+            color: '#ff4444',
+            fontStyle: 'bold'
+        }).setOrigin(0.5).setInteractive();
+
+        closeBtn.on('pointerdown', () => {
+            container.setVisible(false);
+        });
+        container.add(closeBtn);
+
+        // Grid Configuration
+        const slotSize = 100;
+        const gap = 20;
+
+        // Calculate available area
+        const startY = height / 2 - windowH / 2 + 80;
+        const availableW = windowW - 60; // Padding
+        const cols = Math.floor(availableW / (slotSize + gap));
+        const totalGridW = cols * slotSize + (cols - 1) * gap;
+        const startX = width / 2 - totalGridW / 2 + slotSize / 2; // Center the grid
+
+        // Sort rooms by category, then cost
+        const rooms = Object.entries(ECONOMY.ROOM_TYPES).sort((a, b) => {
+            if (a[1].category !== b[1].category) return a[1].category.localeCompare(b[1].category);
+            return (a[1].buildCost.materials || 0) - (b[1].buildCost.materials || 0);
+        });
+
+        // Category Colors
+        const categoryColors = {
+            production: 0x2a6a2a,
+            utility: 0x2a4a6a,
+            defense: 0x6a2a2a,
+            special: 0x6a4a2a
+        };
+
+        rooms.forEach(([key, room], index) => {
+            const row = Math.floor(index / cols);
+            const col = index % cols;
+            const slotX = startX + col * (slotSize + gap);
+            const slotY = startY + row * (slotSize + gap);
+
+            // Group Container for Slot
+            const slot = this.add.rectangle(slotX, slotY, slotSize, slotSize, categoryColors[room.category] || 0x444444)
+                .setStrokeStyle(2, 0x888888)
+                .setInteractive();
+
+            // Icon (if available, else text)
+            let iconKey = room.sprite;
+            if (!iconKey || !this.textures.exists(iconKey)) iconKey = 'icon_build'; // Fallback
+
+            const icon = this.add.image(slotX, slotY - 15, iconKey);
+            // Fit icon roughly
+            const scale = Math.min((slotSize - 20) / icon.width, (slotSize - 40) / icon.height);
+            icon.setScale(scale);
+
+            // Name
+            const nameText = this.add.text(slotX, slotY + 25, room.name.replace(' ', '\n'), {
+                fontSize: '10px',
+                fontFamily: 'Arial',
+                align: 'center',
+                color: '#ffffff',
+                wordWrap: { width: slotSize - 5 }
+            }).setOrigin(0.5, 0);
+
+            // Cost Label
+            const cost = room.buildCost.materials || 0;
+            const costText = this.add.text(slotX, slotY + slotSize / 2 - 10, `${cost} Mat`, {
+                fontSize: '10px',
+                color: '#aaaaaa'
+            }).setOrigin(0.5);
+
+            // Click Handler
+            slot.on('pointerdown', () => {
+                const gameScene = this.scene.get(CONSTANTS.SCENES.GAME);
+                if (gameScene) {
+                    gameScene.events.emit('START_BUILDING', { roomType: key, roomData: room });
+                    this.buildPopup.setVisible(false);
+                }
+            });
+
+            container.add([slot, icon, nameText, costText]);
+        });
+    }
+
+    createCancelBuildButton() {
+        const width = this.cameras.main.width;
+        const height = this.cameras.main.height;
+
+        this.cancelBtnContainer = this.add.container(width / 2, height - 80);
+        this.cancelBtnContainer.setVisible(false);
+        this.cancelBtnContainer.setDepth(200);
+
+        const bg = this.add.rectangle(0, 0, 200, 50, 0xff0000)
+            .setStrokeStyle(2, 0xffffff)
+            .setInteractive();
+
+        const text = this.add.text(0, 0, 'CANCEL BUILD', {
+            fontSize: '20px',
+            fontStyle: 'bold',
+            color: '#ffffff'
+        }).setOrigin(0.5);
+
+        bg.on('pointerdown', () => {
+            const gameScene = this.scene.get(CONSTANTS.SCENES.GAME);
+            if (gameScene && gameScene.cancelBuildMode) {
+                gameScene.cancelBuildMode();
+            }
+        });
+
+        this.cancelBtnContainer.add([bg, text]);
+
+        // Listeners to toggle visibility
+        const gameScene = this.scene.get(CONSTANTS.SCENES.GAME);
+        if (gameScene) {
+            gameScene.events.on('START_BUILDING', () => this.cancelBtnContainer.setVisible(true));
+            gameScene.events.on('STOP_BUILDING', () => this.cancelBtnContainer.setVisible(false));
+
+            // Check initial state
+            if (gameScene.isBuildingMode) {
+                this.cancelBtnContainer.setVisible(true);
+            }
+        }
     }
 }
