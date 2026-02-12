@@ -512,8 +512,19 @@ export class GameScene extends Phaser.Scene {
         // Destroy existing blueprint if any
         if (this.blueprint) this.blueprint.destroy();
 
-        // Create new blueprint
-        this.blueprint = this.add.sprite(0, 0, roomDef.sprite || 'room_generator');
+        // Create new blueprint - use specific assets based on room type
+        let blueprintKey;
+
+        if (data.roomType === 'hydroponic_garden' && this.textures.exists('garden_anim')) {
+            // For garden, use the last frame of the animation (fully grown state)
+            const frameCount = this.textures.get('garden_anim').frameTotal;
+            this.blueprint = this.add.sprite(0, 0, 'garden_anim', frameCount - 1);
+        } else {
+            // For other rooms, use the configured sprite
+            blueprintKey = roomDef.sprite || 'room_generator';
+            this.blueprint = this.add.sprite(0, 0, blueprintKey);
+        }
+
         this.blueprint.setAlpha(0.6);
         this.blueprint.setDepth(100); // Above player
         this.blueprint.setVisible(true);
@@ -1509,14 +1520,14 @@ export class GameScene extends Phaser.Scene {
             // ANIMATED SPRITE SHEET: Garden animation with transparent background
             if (this.textures.exists('garden_anim')) {
                 // Create animation if not already created
-                if (!this.anims.exists('garden_loop')) {
+                if (!this.anims.exists('garden_grow')) {
                     this.anims.create({
-                        key: 'garden_loop',
+                        key: 'garden_grow',
                         frames: this.anims.generateFrameNumbers('garden_anim'),
                         frameRate: 12,
-                        repeat: -1
+                        repeat: 0  // Play once and stop
                     });
-                    console.log('[Garden] Animation created');
+                    console.log('[Garden] Animation created (play once)');
                 }
 
                 // Create animated sprite
@@ -1535,7 +1546,7 @@ export class GameScene extends Phaser.Scene {
 
                 gardenSprite.setPosition(transform.x, transform.y);
                 gardenSprite.setScale(transform.scale);
-                gardenSprite.play('garden_loop');
+                gardenSprite.play('garden_grow');
 
                 this.roomVisuals[key] = gardenSprite;
                 console.log(`[Garden] Animated sprite created at (${roomX}, ${roomY})`);
@@ -1546,7 +1557,8 @@ export class GameScene extends Phaser.Scene {
             }
         } else if (roomType === 'water_purifier') {
             spriteKey = 'room_water';
-        } else if (roomType === 'power_generator') {
+        } else {
+            // Default: Use room_generator (scrap-v4) for all other rooms
             spriteKey = 'room_generator';
         }
 
@@ -1557,7 +1569,8 @@ export class GameScene extends Phaser.Scene {
             return sprite;
         }
 
-        // Fallback: create placeholder
+        // Final fallback: create placeholder (should never reach here if room_generator is loaded)
+        console.warn(`[createRoomVisual] Sprite '${spriteKey}' not found for room type '${roomType}', using placeholder`);
         const placeholder = this.add.rectangle(roomX, roomY, 100, 100, 0x00ff00, 0.3);
         this.roomVisuals[key] = placeholder;
         return placeholder;
