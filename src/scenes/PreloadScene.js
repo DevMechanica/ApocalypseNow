@@ -61,7 +61,26 @@ export class PreloadScene extends Phaser.Scene {
         this.load.image('icon_pause', 'ui_icons/icon_pause.png');
         this.load.image('icon_settings', 'ui_icons/icon_settings.png');
         this.load.image('icon_map', 'ui_icons/icon_map.png');
-        this.load.image('icon_build', 'ui_icons/icon_build.png');
+        // this.load.image('icon_build', 'ui_icons/icon_build.png'); // Replaced by btn_build
+
+        // New Right-Side Buttons (Anonymous for now)
+        this.load.image('btn_side_1', 'ui_icons/btn_side_1.png');
+        this.load.image('btn_side_2', 'ui_icons/btn_side_2.png');
+        this.load.image('btn_side_3', 'ui_icons/btn_side_3.png');
+        this.load.image('btn_side_4', 'ui_icons/btn_side_4.png');
+
+        // New Floor Navigation Arrows
+        this.load.image('btn_arrow_up', 'ui_icons/btn_arrow_up.png');
+        this.load.image('btn_arrow_down', 'ui_icons/btn_arrow_down.png');
+
+        // New UI Buttons
+        this.load.image('btn_build', 'ui_icons/btn_build.png');
+        this.load.image('btn_achiev_active', 'ui_icons/btn_achievements_active.png');
+        this.load.image('btn_achiev_inactive', 'ui_icons/btn_achievements_inactive.png');
+        this.load.image('btn_char_active', 'ui_icons/btn_characters_active.png');
+        this.load.image('btn_char_inactive', 'ui_icons/btn_characters_inactive.png');
+        this.load.image('btn_upgrades_active', 'ui_icons/btn_upgrades_active.png');
+        this.load.image('btn_upgrades_inactive', 'ui_icons/btn_upgrades_inactive.png');
 
         // Room sprites
         this.load.image('room_garden', 'Objects/Garden/hydroponic_garden.png');

@@ -1,41 +1,25 @@
-import sys
 from PIL import Image
+import glob
+import os
 
-# Force unbuffered stdout
-sys.stdout.reconfigure(line_buffering=True)
+def check_padding():
+    files = glob.glob("ui_icons/btn_*.png")
+    for f in files:
+        img = Image.open(f)
+        bbox = img.getbbox()
+        width, height = img.size
+        
+        if bbox:
+            left, top, right, bottom = bbox
+            content_width = right - left
+            content_height = bottom - top
+            
+            h_padding = (left + (width - right)) / width * 100
+            v_padding = (top + (height - bottom)) / height * 100
+            
+            print(f"{os.path.basename(f)}: Size({width}x{height}) Content({content_width}x{content_height}) Padding(H:{h_padding:.1f}%, V:{v_padding:.1f}%)")
+        else:
+            print(f"{os.path.basename(f)}: Empty image")
 
-anim_path = r"d:\Programming\ApocalypseNow\Objects\Cutscenes\Garden\garden_anim.png"
-
-try:
-    img = Image.open(anim_path).convert("RGBA")
-    # Crop first frame (921x1080)
-    img = img.crop((0, 0, 921, 1080))
-    
-    bbox = img.getbbox()
-    if bbox:
-        # bbox is (left, top, right, bottom)
-        # Coordinate system: (0,0) is Top-Left.
-        # Height is 1080.
-        # Bottom padding = Height - bbox[3]
-        
-        frame_height = 1080
-        content_bottom = bbox[3]
-        bottom_padding = frame_height - content_bottom
-        
-        print(f"Frame Height: {frame_height}")
-        print(f"Content Bottom: {content_bottom}")
-        print(f"Bottom Padding: {bottom_padding}")
-        
-        # Also check Top Padding for completeness
-        print(f"Top Padding: {bbox[1]}")
-        
-        # And Side Padding (Center check)
-        left_pad = bbox[0]
-        right_pad = 921 - bbox[2]
-        print(f"Side Padding: L={left_pad}, R={right_pad}")
-        
-    else:
-        print("Empty image")
-
-except Exception as e:
-    print(e)
+if __name__ == "__main__":
+    check_padding()

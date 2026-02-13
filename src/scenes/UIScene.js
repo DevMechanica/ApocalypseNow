@@ -1,4 +1,5 @@
 import * as Phaser from 'phaser';
+import { PhaserResourceBars } from '../systems/PhaserResourceBars.js';
 import { CONSTANTS, ECONOMY, INITIAL_GAME_STATE } from '../config.js';
 
 export class UIScene extends Phaser.Scene {
@@ -12,7 +13,12 @@ export class UIScene extends Phaser.Scene {
             this.registry.set('gameState', JSON.parse(JSON.stringify(INITIAL_GAME_STATE)));
         }
 
-        this.createResourceBars();
+        // Initialize Native Phaser Resource Bars
+        this.resourceBars = new PhaserResourceBars(this);
+        this.resourceBars.create();
+
+        // Old Canvas Bars (Disabled)
+        // this.createResourceBars();
         this.createButtons();
         this.createBuildPopup();
         this.createPausePopup();
@@ -45,7 +51,7 @@ export class UIScene extends Phaser.Scene {
         // Responsive sizing based on screen width
         const padding = Math.max(4, screenWidth * 0.01);
         const iconSize = Math.max(16, Math.floor(screenWidth * 0.035));
-        const barWidth = Math.max(35, Math.floor(screenWidth * 0.07));
+        const barWidth = Math.max(70, Math.floor(screenWidth * 0.13)); // Increased from 0.07 to 0.13 (Prolonged)
         const barHeight = Math.max(16, Math.floor(screenWidth * 0.03));
         const fontSize = Math.max(9, Math.floor(screenWidth * 0.018));
 
@@ -53,6 +59,10 @@ export class UIScene extends Phaser.Scene {
         const resourceKeys = ['caps', 'food', 'water', 'power', 'materials'];
         const totalResourceWidth = iconSize + barWidth + padding;
         const availableWidth = screenWidth - (padding * 2);
+        // If we make bars too wide, we might need more space.
+        // Let's use flexible spacing or just ensure they fit.
+        // 5 items * (Icon + Bar + Gap) must < ScreenWidth.
+        // spacing should be strictly width/5
         const spacing = Math.floor(availableWidth / resourceKeys.length);
 
         const y = padding;
@@ -80,48 +90,66 @@ export class UIScene extends Phaser.Scene {
                 this.hideTooltip();
             });
 
-            // Icon
-            const icon = this.add.image(containerX + iconSize / 2, y + iconSize / 2, resDef.icon)
-                .setDisplaySize(iconSize, iconSize);
+            // Icon - Larger and overlapping left edge
+            const icon = this.add.image(containerX, y + barHeight / 2, resDef.icon)
+                .setDisplaySize(iconSize * 1.3, iconSize * 1.3)
+                .setDepth(10); // Above bar
 
-            // Bar Background
-            this.add.rectangle(containerX + iconSize + 4, y, barWidth, barHeight, 0x333333).setOrigin(0, 0);
+            // Bar dimensions
+            const pillHeight = barHeight;
+            const pillWidth = barWidth; // Use full calculated width
+            const pillX = containerX + (iconSize / 2); // Start bar halfway through icon
+            const cornerRadius = 6; // User requested "not fully rounded", just "a bit"
 
-            // Bar Fill
-            const fill = this.add.rectangle(containerX + iconSize + 4, y, barWidth, barHeight, resDef.color).setOrigin(0, 0);
+            // Background Pill (Dark)
+            const bgGraphics = this.add.graphics();
+            bgGraphics.fillStyle(0x151d29, 1);
+            bgGraphics.fillRoundedRect(pillX, y, pillWidth, pillHeight, cornerRadius);
 
-            // Text
-            const text = this.add.text(containerX + iconSize + 6, y + 2, '', {
+            // Fill Pill (Colored) - We use a Graphics object that we can clear/redraw or use a masked rect
+            // To make "width" updates easy without redrawing every frame if possible, 
+            // but Graphics redraw is clean for rounded rects.
+            const fillGraphics = this.add.graphics();
+            // Initial draw (full or 0) - will be updated by updateResourceUI
+
+            // Text - Centered in Pill
+            const text = this.add.text(pillX + pillWidth / 2 + 5, y + pillHeight / 2, '', {
                 fontSize: `${fontSize}px`,
                 fontFamily: 'Arial',
-                color: '#ffffff'
-            });
+                color: '#ffffff',
+                fontStyle: 'bold'
+            }).setOrigin(0.5, 0.5).setDepth(5);
 
-            // Store references with max width for updates
-            this['bar_' + key] = fill;
-            this['bar_' + key + '_maxWidth'] = barWidth;
+            // Store references
+            this['barGraphics_' + key] = fillGraphics;
+            this['barConfigs_' + key] = {
+                x: pillX,
+                y: y,
+                w: pillWidth,
+                h: pillHeight,
+                color: resDef.color,
+                radius: cornerRadius
+            };
             this['text_' + key] = text;
         });
 
         // --- NEW PREMIUM TOGGLE SWITCH ---
-        const materialsIndex = 4;
-        const materialsX = padding + (materialsIndex * spacing);
-        const toggleW = barWidth * 0.8;
-        const toggleH = barHeight * 0.9;
-        const toggleX = materialsX + iconSize + 4 + barWidth + 15;
-        const barH = Math.max(iconSize, barHeight);
+        // Position it relative to the last resource or absolute right?
+        // If we pack resources tightly, we might have space on far right.
+        // Let's put it on the far right edge of the screen.
+        const toggleW = 40;
+        const toggleH = 20;
+        const toggleX = screenWidth - toggleW / 2 - 20; // 20px padding from right
+        const toggleY = y + barHeight / 2; // Vertically aligned with bars
 
-        const toggleBtn = this.add.container(toggleX + toggleW / 2, y + barH / 2);
+        const toggleBtn = this.add.container(toggleX, toggleY);
 
         // Track Background (Capsule)
         const track = this.add.rectangle(0, 0, toggleW, toggleH, 0x111111)
             .setStrokeStyle(1.5, 0x444444);
 
-        // Rounded corners for track (using graphics for better look if possible, but rectangle is fine for now)
-        // We can simulate rounded corners with a rectangle and a stroke if we want, but Phaser 3.60+ has setRounded
-        if (track.setPostPipeline) { // Simple check for newer phaser or just keep it simple
-            // track.setInteractive();
-        }
+        // Use a simple interact zone
+        track.setInteractive({ useHandCursor: true });
 
         // Knob (Circle that slides)
         const knobSize = toggleH * 0.8;
@@ -136,7 +164,6 @@ export class UIScene extends Phaser.Scene {
         }).setOrigin(0.5);
 
         toggleBtn.add([track, knob, label]);
-        track.setInteractive({ useHandCursor: true });
 
         const updateToggleVisual = (isAuto, animate = true) => {
             const targetX = isAuto ? -(toggleW / 2) + knobSize / 2 + 2 : (toggleW / 2) - knobSize / 2 - 2;
@@ -229,31 +256,151 @@ export class UIScene extends Phaser.Scene {
             return btn;
         };
 
-        // Sidebar buttons
-        createSideBtn('icon_pause', 0, () => {
-            if (this.pausePopup) this.pausePopup.setVisible(!this.pausePopup.visible);
+        // Sidebar buttons (Right side)
+        // Replaced old icons with new 'btn_side_X' assets
+        const sideBtnKeys = ['btn_side_1', 'btn_side_2', 'btn_side_3', 'btn_side_4'];
+
+        // Define actions for them (Temporary mapping until user identifies them)
+        const sideBtnActions = [
+            () => { console.log('Side Button 1 Clicked (Pause?)'); if (this.pausePopup) this.pausePopup.setVisible(!this.pausePopup.visible); },
+            () => { console.log('Side Button 2 Clicked (Map?)'); if (this.mapPopup) this.mapPopup.setVisible(!this.mapPopup.visible); },
+            () => { console.log('Side Button 3 Clicked (Settings?)'); if (this.settingsPopup) this.settingsPopup.setVisible(!this.settingsPopup.visible); },
+            () => { console.log('Side Button 4 Clicked (Shop/Quests?)'); console.log('Shop/Quests logic here'); }
+        ];
+
+        sideBtnKeys.forEach((key, index) => {
+            const btn = this.add.image(width - sideMargin, sideY + (index * (btnSize + 25)), key)
+                .setInteractive();
+
+            // Scale based on width to match other buttons, but let height be taller
+            const scale = btnSize / btn.width;
+            btn.setScale(scale, scale * 1); // 15% taller than wide
+
+            // Add bouncy click
+            btn.on('pointerdown', () => {
+                this.tweens.add({
+                    targets: btn,
+                    scaleX: scale * 0.9,
+                    scaleY: (scale * 1) * 0.9,
+                    duration: 50,
+                    yoyo: true
+                });
+                if (sideBtnActions[index]) sideBtnActions[index]();
+            });
         });
 
-        createSideBtn('icon_map', 1, () => {
-            if (this.mapPopup) this.mapPopup.setVisible(!this.mapPopup.visible);
-        });
+        // --- NEW BOTTOM BAR ---
+        const bottomBarHeight = Math.max(80, Math.floor(height * 0.12));
+        const bottomY = height - bottomBarHeight / 2;
 
-        createSideBtn('icon_settings', 2, () => {
-            if (this.settingsPopup) this.settingsPopup.setVisible(!this.settingsPopup.visible);
-        });
+        // Helper to scale button while keeping aspect ratio
+        const setupBottomButton = (x, keyRoot) => {
+            const btn = this.add.image(x, bottomY, keyRoot + '_inactive').setInteractive();
+            btn.keyRoot = keyRoot; // Store root for state toggling
 
-        // Build Button - responsive size
-        const buildBtnSize = Math.max(50, Math.floor(width * 0.12));
-        const buildMargin = Math.max(40, Math.floor(width * 0.08));
-        const buildBtn = this.add.image(width - buildMargin, height - buildMargin, 'icon_build')
-            .setInteractive()
-            .setDisplaySize(buildBtnSize, buildBtnSize);
+            // User feedback: "still too big"
+            // Reduce to 0.65x of bar height (smaller, more breathing room)
+            const targetHeight = bottomBarHeight * 0.45;
+            const scale = targetHeight / btn.height;
+            btn.setScale(scale);
+
+            return btn;
+        };
+
+        // 1. Character Button (Left) - NOW CENTERED
+        const btnChar = setupBottomButton(0, 'btn_char');
+        const btnUpgrades = setupBottomButton(0, 'btn_upgrades');
+        const btnAchiev = setupBottomButton(0, 'btn_achiev');
+
+        // State for active menu
+        this.activeMenuBtn = null;
+
+        const setActiveMenu = (btn) => {
+            // Reset previous
+            if (this.activeMenuBtn && this.activeMenuBtn !== btn) {
+                this.activeMenuBtn.setTexture(this.activeMenuBtn.keyRoot + '_inactive');
+            }
+
+            // Set new
+            this.activeMenuBtn = btn;
+            btn.setTexture(btn.keyRoot + '_active');
+        };
+
+        // Calculate layout for centering
+        // User feedback: "one bit closer to each other" -> overlap slightly
+        const btnSpacing = -5; // Negative spacing for overlap
+        const totalWidth = btnChar.displayWidth + btnUpgrades.displayWidth + btnAchiev.displayWidth + (btnSpacing * 2);
+
+        // Start X such that the group is centered
+        let currentX = (width - totalWidth) / 2 + (btnChar.displayWidth / 2);
+
+        // Position 1: Character
+        btnChar.x = currentX;
+        // User feedback: "touch the most down part" -> 0 padding
+        const lowerY = height - (btnChar.displayHeight / 2);
+        btnChar.y = lowerY;
+
+        const addBouncyClick = (btn, callback) => {
+            btn.on('pointerdown', () => {
+                // Animation
+                this.tweens.add({
+                    targets: btn,
+                    scaleX: btn.scaleX * 0.9,
+                    scaleY: btn.scaleY * 0.9,
+                    duration: 50,
+                    yoyo: true
+                });
+
+                // Active State logic
+                setActiveMenu(btn);
+
+                if (callback) callback();
+            });
+        };
+
+        addBouncyClick(btnChar, () => console.log('Character Menu Clicked'));
+
+        // Position 2: Upgrades
+        currentX += (btnChar.displayWidth / 2) + (btnUpgrades.displayWidth / 2) + btnSpacing;
+        btnUpgrades.x = currentX;
+        btnUpgrades.y = lowerY;
+
+        addBouncyClick(btnUpgrades, () => console.log('Upgrades Menu Clicked'));
+
+        // Position 3: Achievements
+        currentX += (btnUpgrades.displayWidth / 2) + (btnAchiev.displayWidth / 2) + btnSpacing;
+        btnAchiev.x = currentX;
+        btnAchiev.y = lowerY;
+
+        addBouncyClick(btnAchiev, () => console.log('Achievements Menu Clicked'));
+
+        // 4. Build Button (Right - Large)
+        // Replaces old build button logic
+        const buildBtnSize = Math.max(100, Math.floor(width * 0.25)); // Make it big
+        // Create at 0,0 initially, will position with origin
+        const buildBtn = this.add.image(0, 0, 'btn_build')
+            .setInteractive();
+
+        // Scale build button firmly to width, but keep aspect ratio
+        // User feedback: "build button should be smaller"
+        // Reduced from 1.1x to 0.8x
+        const targetBuildHeight = bottomBarHeight * 0.6;
+        const buildScale = targetBuildHeight / buildBtn.height;
+        buildBtn.setScale(buildScale);
+
+        // Reposition build button to be consistent with bottom alignment
+        // User feedback: "touch the most right" and "most down"
+        // forceful alignment using Origin (1, 1) = Bottom Right
+        buildBtn.setOrigin(1, 1);
+        buildBtn.setPosition(width, height);
 
         buildBtn.on('pointerdown', () => {
+            // Animation
             this.tweens.add({
                 targets: buildBtn,
-                y: height - buildMargin - 5,
-                duration: 100,
+                scaleX: buildScale * 0.95,
+                scaleY: buildScale * 0.95,
+                duration: 50,
                 yoyo: true
             });
 
@@ -282,18 +429,47 @@ export class UIScene extends Phaser.Scene {
         });
 
         // --- NAVIGATION BUTTONS (Right Side, Above Build) ---
+        // Positioned slightly above the Build Button
+        const buildBtnHeight = bottomBarHeight * 0.6; // We know this from build btn logic
+        const buildBtnWidthApprox = buildBtnHeight; // Assuming roughly square or similar aspect
+
+        // Align with the center of the build button (which is at width - width/2)
+        // Since build button is at (width, height) with origin (1,1)
+        const navX = width - (buildBtnHeight / 2);
+
         const navBtnSize = 50;
-        const navX = width - 40;
-        const navY_Up = height - 200;
-        const navY_Down = height - 140;
+        const padding = 10;
+
+        // Down Arrow (Immediately above build button)
+        const navY_Down = height - buildBtnHeight - (navBtnSize / 2) - padding;
+
+        // Up Arrow (Above Down Arrow)
+        const navY_Up = navY_Down - navBtnSize - padding;
+
+        /* 
+           Note: We have side buttons at (width - sideMargin). 
+           We need to ensure these don't overlap. 
+           If sideMargin is small, they might share the same column.
+           Assuming side buttons start from top or middle, and these are at bottom.
+        */
 
         // Up Arrow
-        const btnUp = this.add.rectangle(navX, navY_Up, navBtnSize, navBtnSize, 0x444444)
-            .setStrokeStyle(2, 0x888888)
+        const btnUp = this.add.image(navX, navY_Up, 'btn_arrow_up')
             .setInteractive();
-        const textUp = this.add.text(navX, navY_Up, 'UP', { fontSize: '14px', fontStyle: 'bold' }).setOrigin(0.5);
+
+        // Scale to reasonable size
+        const scaleUp = navBtnSize / btnUp.height;
+        btnUp.setScale(scaleUp);
 
         btnUp.on('pointerdown', () => {
+            this.tweens.add({
+                targets: btnUp,
+                scaleX: scaleUp * 0.9,
+                scaleY: scaleUp * 0.9,
+                duration: 50,
+                yoyo: true
+            });
+
             const gameScene = this.scene.get(CONSTANTS.SCENES.GAME);
             if (gameScene && gameScene.sceneId > 1) {
                 this.startSceneTransition(gameScene.sceneId - 1, 'BOTTOM');
@@ -301,12 +477,21 @@ export class UIScene extends Phaser.Scene {
         });
 
         // Down Arrow
-        const btnDown = this.add.rectangle(navX, navY_Down, navBtnSize, navBtnSize, 0x444444)
-            .setStrokeStyle(2, 0x888888)
+        const btnDown = this.add.image(navX, navY_Down, 'btn_arrow_down')
             .setInteractive();
-        const textDown = this.add.text(navX, navY_Down, 'DN', { fontSize: '14px', fontStyle: 'bold' }).setOrigin(0.5);
+
+        const scaleDown = navBtnSize / btnDown.height;
+        btnDown.setScale(scaleDown);
 
         btnDown.on('pointerdown', () => {
+            this.tweens.add({
+                targets: btnDown,
+                scaleX: scaleDown * 0.9,
+                scaleY: scaleDown * 0.9,
+                duration: 50,
+                yoyo: true
+            });
+
             const gameScene = this.scene.get(CONSTANTS.SCENES.GAME);
             // Max scenes = 10
             if (gameScene && gameScene.sceneId < 10) {
@@ -472,9 +657,10 @@ export class UIScene extends Phaser.Scene {
         if (!state) return;
 
         // Update each resource bar
-        Object.keys(ECONOMY.RESOURCES).forEach(key => {
-            this.updateResourceUI(key, state);
-        });
+        // Update Resource Bars
+        if (this.resourceBars) {
+            this.resourceBars.update(state);
+        }
 
         // Update floor text
         if (this.floorText) {
@@ -488,11 +674,11 @@ export class UIScene extends Phaser.Scene {
     }
 
     updateResourceUI(key, state) {
-        const bar = this['bar_' + key];
+        const fillGraphics = this['barGraphics_' + key];
+        const config = this['barConfigs_' + key];
         const text = this['text_' + key];
-        const maxWidth = this['bar_' + key + '_maxWidth'] || 60;
 
-        if (!bar || !text || !state) return;
+        if (!fillGraphics || !config || !text || !state) return;
 
         const current = Math.floor(state.resources[key] || 0);
         const max = state.resourceMax[key] || 0;
@@ -506,12 +692,31 @@ export class UIScene extends Phaser.Scene {
             text.setText(`${current}`);
         }
 
-        // Update bar width (use stored maxWidth)
-        if (max > 0) {
-            const percent = Phaser.Math.Clamp(current / max, 0, 1);
-            bar.width = maxWidth * percent;
-        } else {
-            bar.width = maxWidth;
+        // Redraw Bar
+        const percent = (max > 0) ? Phaser.Math.Clamp(current / max, 0, 1) : 1;
+        const currentW = Math.max(0, config.w * percent);
+
+        fillGraphics.clear();
+        if (currentW > 0) {
+            fillGraphics.fillStyle(config.color, 1);
+
+            // If width is smaller than corner radius, we reduce radius to avoid artifacts
+            // or just clip it.
+            // Simple approach: Standard rounded rect
+
+            // To prevent "square" look at low percentages if we used simple rect, 
+            // we use round for the whole thing.
+            // Ideally, we might want it to be "cut off" on right but rounded on left?
+            // "Pill" usually means fully rounded ends.
+            // If we fill only part, it looks like a smaaaall pill.
+            // Let's optimize: Draw rounded rect for full width, and mask it?
+            // Actually, redrawing a small rounded rect looks fine as a "growing pill".
+
+            // Corner radius from config (subtle, not full pill)
+            const radius = config.radius || 5;
+
+            // Ensure width isn't smaller than diameter? No, standard fillRoundedRect is robust.
+            fillGraphics.fillRoundedRect(config.x, config.y, currentW, config.h, radius);
         }
     }
 
