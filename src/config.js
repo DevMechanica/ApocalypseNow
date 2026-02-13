@@ -54,6 +54,17 @@ export const CONSTANTS = {
 
 export const ECONOMY = {
     // -------------------------------------------------------------------------
+    // UPGRADE SYSTEM
+    // -------------------------------------------------------------------------
+    UPGRADE: {
+        maxLevel: 10,                   // Maximum upgrade level for any machine
+        costCurrency: 'caps',           // Primary currency for upgrades
+        secondaryCurrency: 'materials', // Secondary currency for upgrades
+        costScalingDefault: 1.5,        // Default: NextCost = BaseCost * (Factor ^ Level)
+        outputMultiplierDefault: 0.25   // Default: Output = Base * (1 + Level * Multiplier)
+    },
+
+    // -------------------------------------------------------------------------
     // RESOURCES
     // -------------------------------------------------------------------------
     RESOURCES: {
@@ -147,6 +158,11 @@ export const ECONOMY = {
                 interval: 10000, // 10s
                 capacity: 18
             },
+            upgrade: {
+                baseCost: { caps: 75, materials: 40 },
+                costScaling: 1.5,
+                outputMultiplier: 0.25
+            },
             description: 'Grows food using water and power'
         },
         water_purifier: {
@@ -165,6 +181,11 @@ export const ECONOMY = {
                 interval: 15000, // 15s
                 capacity: 16
             },
+            upgrade: {
+                baseCost: { caps: 60, materials: 35 },
+                costScaling: 1.5,
+                outputMultiplier: 0.25
+            },
             description: 'Purifies contaminated water'
         },
         power_generator: {
@@ -181,6 +202,11 @@ export const ECONOMY = {
                 amount: 5,
                 interval: 10000, // 10s
                 capacity: 50
+            },
+            upgrade: {
+                baseCost: { caps: 100, materials: 55 },
+                costScaling: 1.6,
+                outputMultiplier: 0.30
             },
             description: 'Generates electricity'
         },
@@ -199,6 +225,11 @@ export const ECONOMY = {
                 amount: 1,
                 interval: 12000, // 12s
                 capacity: 20
+            },
+            upgrade: {
+                baseCost: { caps: 50, materials: 25 },
+                costScaling: 1.4,
+                outputMultiplier: 0.20
             },
             description: 'Breaks down junk into materials'
         },

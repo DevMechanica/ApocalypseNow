@@ -1,6 +1,13 @@
+import { ECONOMY } from '../config.js';
+
 /**
  * ResourceProducer - Component responsible for generating resources over time.
  * Logic only - state is stored in the provided data object for persistence.
+ * 
+ * Upgrade Integration:
+ * - Output scales with room level via getEffectiveAmount().
+ * - Formula: baseAmount * (1 + (level - 1) * outputMultiplier)
+ * - Level 1 = base output (no bonus).
  */
 export class ResourceProducer {
     /**
@@ -29,6 +36,25 @@ export class ResourceProducer {
     }
 
     /**
+     * Calculate the effective production amount factoring in room level.
+     * Uses the upgrade multiplier from the room's config if available.
+     * @returns {number} Effective output amount per production cycle
+     */
+    getEffectiveAmount() {
+        const level = this.data.level || 1;
+        if (level <= 1) return this.config.amount;
+
+        // Look up the room type's upgrade multiplier
+        const roomType = this.data.type;
+        const roomDef = roomType ? ECONOMY.ROOM_TYPES[roomType] : null;
+        const multiplier = (roomDef && roomDef.upgrade && roomDef.upgrade.outputMultiplier)
+            ? roomDef.upgrade.outputMultiplier
+            : (ECONOMY.UPGRADE ? ECONOMY.UPGRADE.outputMultiplierDefault : 0.25);
+
+        return this.config.amount * (1 + ((level - 1) * multiplier));
+    }
+
+    /**
      * Update loop
      * @param {number} delta - Time in seconds
      * @param {boolean} autoFarming - Global auto-farming setting
@@ -54,22 +80,23 @@ export class ResourceProducer {
 
     produce(autoCollect) {
         this.data.producerTimer = 0;
+        const effectiveAmount = this.getEffectiveAmount();
 
         if (autoCollect) {
             return {
                 type: this.config.outputType,
-                amount: this.config.amount,
+                amount: effectiveAmount,
                 source: this.parent
             };
         }
 
         // Manual collect
         if (this.data.storedResources < this.config.capacity) {
-            this.data.storedResources = Math.min(this.data.storedResources + this.config.amount, this.config.capacity);
+            this.data.storedResources = Math.min(this.data.storedResources + effectiveAmount, this.config.capacity);
 
             return {
                 type: this.config.outputType,
-                amount: this.config.amount,
+                amount: effectiveAmount,
                 stored: this.data.storedResources,
                 capacity: this.config.capacity,
                 source: this.parent,

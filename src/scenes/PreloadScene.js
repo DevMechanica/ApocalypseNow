@@ -82,6 +82,9 @@ export class PreloadScene extends Phaser.Scene {
         this.load.image('btn_upgrades_active', 'ui_icons/btn_upgrades_active.png');
         this.load.image('btn_upgrades_inactive', 'ui_icons/btn_upgrades_inactive.png');
 
+        // Industrial UI Assets
+        this.load.image('ui_upgrade_panel', 'Objects/Upgrade_menu/upgrade-menu-background-transparent.png');
+
         // Room sprites
         this.load.image('room_garden', 'Objects/Garden/hydroponic_garden.png');
         this.load.image('room_water', 'Objects/WaterPurifier/water_purifier.png');
