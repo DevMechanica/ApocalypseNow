@@ -134,6 +134,7 @@ export const ECONOMY = {
         hydroponic_garden: {
             name: 'Hydroponic Garden',
             category: 'production',
+            sprite: 'room_garden', // Linked to PreloadScene
             width: 2,
             bestStat: 'agility',
             buildCost: { materials: 100, caps: 50 },
@@ -151,6 +152,7 @@ export const ECONOMY = {
         water_purifier: {
             name: 'Water Purifier',
             category: 'production',
+            sprite: 'room_water',
             width: 2,
             bestStat: 'agility',
             buildCost: { materials: 80, caps: 40 },
@@ -168,6 +170,7 @@ export const ECONOMY = {
         power_generator: {
             name: 'Power Generator',
             category: 'production',
+            sprite: 'room_generator',
             bestStat: 'strength',
             buildCost: { materials: 120, caps: 60 },
             powerCost: 0,  // Produces power
@@ -184,6 +187,7 @@ export const ECONOMY = {
         salvage_station: {
             name: 'Salvage Station',
             category: 'production',
+            sprite: 'room_generator', // Placeholder
             width: 4,
             bestStat: 'agility',
             buildCost: { materials: 60, caps: 30 },
@@ -203,6 +207,7 @@ export const ECONOMY = {
         living_quarters: {
             name: 'Living Quarters',
             category: 'utility',
+            sprite: 'room_generator', // Placeholder
             bestStat: 'endurance',
             buildCost: { materials: 50, caps: 20 },
             powerCost: 2,
@@ -214,6 +219,7 @@ export const ECONOMY = {
         storage: {
             name: 'Storage',
             category: 'utility',
+            sprite: 'room_generator', // Placeholder
             bestStat: 'endurance',
             buildCost: { materials: 40, caps: 15 },
             powerCost: 1,
@@ -225,6 +231,7 @@ export const ECONOMY = {
         medbay: {
             name: 'Medbay',
             category: 'utility',
+            sprite: 'room_generator', // Placeholder
             bestStat: 'intelligence',
             buildCost: { materials: 150, caps: 100 },
             powerCost: 10,
@@ -238,6 +245,7 @@ export const ECONOMY = {
         armory: {
             name: 'Armory',
             category: 'defense',
+            sprite: 'room_generator', // Placeholder
             bestStat: 'strength',
             buildCost: { materials: 200, caps: 150 },
             powerCost: 5,
@@ -249,6 +257,7 @@ export const ECONOMY = {
         turret_room: {
             name: 'Turret Room',
             category: 'defense',
+            sprite: 'room_generator', // Placeholder
             bestStat: 'strength',
             buildCost: { materials: 300, caps: 200 },
             powerCost: 15,
@@ -260,6 +269,7 @@ export const ECONOMY = {
         blast_door: {
             name: 'Blast Door',
             category: 'defense',
+            sprite: 'room_generator', // Placeholder
             bestStat: 'strength',
             buildCost: { materials: 250, caps: 100 },
             powerCost: 0,
@@ -273,6 +283,7 @@ export const ECONOMY = {
         research_lab: {
             name: 'Research Lab',
             category: 'special',
+            sprite: 'room_generator', // Placeholder
             bestStat: 'intelligence',
             buildCost: { materials: 400, caps: 300 },
             powerCost: 20,
@@ -284,6 +295,7 @@ export const ECONOMY = {
         radio_room: {
             name: 'Radio Room',
             category: 'special',
+            sprite: 'room_generator', // Placeholder
             bestStat: 'intelligence',
             buildCost: { materials: 100, caps: 80 },
             powerCost: 8,
@@ -295,6 +307,7 @@ export const ECONOMY = {
         trading_post: {
             name: 'Trading Post',
             category: 'special',
+            sprite: 'room_generator', // Placeholder
             bestStat: 'intelligence',
             buildCost: { materials: 150, caps: 120 },
             powerCost: 5,

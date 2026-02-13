@@ -35,7 +35,14 @@ export class GameScene extends Phaser.Scene {
         this.entryPoint = data.entry || 'DEFAULT'; // 'TOP', 'BOTTOM', or 'DEFAULT'
         this.transitionData = data.transition || null; // Capture transition data
         this.sceneConfig = CONSTANTS.SCENE_CONFIG[this.sceneId];
+        this.sceneConfig = CONSTANTS.SCENE_CONFIG[this.sceneId];
         console.log(`Initializing GameScene: Scene ${this.sceneId} (${this.sceneConfig.name}) Entry: ${this.entryPoint}`);
+
+        // Base Building State
+        this.isBuildingMode = false;
+        this.pendingRoom = null;
+        this.blueprint = null;
+        this.validPlacement = false;
     }
 
     create() {
@@ -45,6 +52,12 @@ export class GameScene extends Phaser.Scene {
         // Initialize Economy Manager
         this.economy = new EconomyManager(this);
         this.economy.init();
+
+        // Restore Existing Rooms
+        this.restoreRooms();
+
+        // Listen for Build Events
+        this.events.on('START_BUILDING', this.enterBuildMode, this);
 
         // Initialize Floating Text System
         this.floatingTextSystem = new FloatingTextSystem(this);
@@ -478,16 +491,228 @@ export class GameScene extends Phaser.Scene {
                 this.targetPosition = new Phaser.Math.Vector2(clampedX, this.getFloorY(clickedFloor));
                 this.rtsTargetX = null; // Clear any pending elevator resume
             }
+        } else if (this.isBuildingMode) {
+            // Build Mode Click Handling
+            this.handleBuildClick(pointer);
+        }
+    }
+
+    // =========================================================================
+    // BASE BUILDING SYSTEM
+    // =========================================================================
+
+    enterBuildMode(data) {
+        console.log('Enter Build Mode:', data);
+        this.isBuildingMode = true;
+        this.pendingRoom = data;
+
+        // Create Blueprint
+        const roomDef = ECONOMY.ROOM_TYPES[data.roomType];
+
+        // Destroy existing blueprint if any
+        if (this.blueprint) this.blueprint.destroy();
+
+        // Create new blueprint - use specific assets based on room type
+        let blueprintKey;
+
+        if (data.roomType === 'hydroponic_garden' && this.textures.exists('garden_anim')) {
+            // For garden, use the last frame of the animation (fully grown state)
+            const frameCount = this.textures.get('garden_anim').frameTotal;
+            this.blueprint = this.add.sprite(0, 0, 'garden_anim', frameCount - 1);
+        } else {
+            // For other rooms, use the configured sprite
+            blueprintKey = roomDef.sprite || 'room_generator';
+            this.blueprint = this.add.sprite(0, 0, blueprintKey);
         }
 
+        this.blueprint.setAlpha(0.6);
+        this.blueprint.setDepth(100); // Above player
+        this.blueprint.setVisible(true);
 
+        // Store validation state
+        this.validPlacement = false;
+    }
+
+    updateBuildMode(pointer) {
+        if (!this.blueprint || !this.pendingRoom) return;
+
+        const worldPoint = this.input.activePointer.positionToCamera(this.cameras.main);
+
+        // Find grid slot
+        const slotInfo = this.getFloorSlot(worldPoint.x, worldPoint.y);
+
+        if (slotInfo.isValid) {
+            // Snap to slot
+            const roomDef = ECONOMY.ROOM_TYPES[this.pendingRoom.roomType];
+            const roomWidth = roomDef.width || 1; // Used for visuals if we had variable width rooms
+
+            // For now, rooms are 2 slots wide visually in the sprite, but logic takes "width" slots.
+            // Wait, config says width: 2.
+            // If the sprite covers 2 slots, we should center it between them?
+            // Actually, let's keep it simple: Position at the center of the slot(s).
+
+            // Calculate X based on slot index
+            const slotWidth = (this.buildingBounds.maxX - this.buildingBounds.minX) / ECONOMY.FLOOR.slotsPerFloor;
+            const slotCenterX = this.buildingBounds.minX + (slotInfo.slotIndex * slotWidth) + (slotWidth / 2);
+
+            // Adjust for multi-slot rooms (center between start slot and end slot)
+            // But for now, let's just snap to the single slot cursor is on.
+
+            // Y is fixed to floor line
+            const floorY = this.getFloorY(slotInfo.floorIndex);
+            // Visual offset for room sprite (e.g., -150 to sit ON floor)
+            const visualOffset = -150 * this.mapScale; // Tune this!
+
+            this.blueprint.setPosition(slotCenterX, floorY + visualOffset);
+            this.blueprint.setScale(this.mapScale * 0.8);
+
+            // Validation Checking
+            this.validPlacement = this.validateRoomPlacement(slotInfo.floorIndex, slotInfo.slotIndex, this.pendingRoom.roomType);
+
+            if (this.validPlacement) {
+                this.blueprint.setTint(0x00ff00); // Green
+            } else {
+                this.blueprint.setTint(0xff0000); // Red
+            }
+        } else {
+            // Off-grid
+            this.blueprint.setPosition(worldPoint.x, worldPoint.y);
+            this.blueprint.setTint(0xff0000);
+            this.validPlacement = false;
+        }
+    }
+
+    validateRoomPlacement(floor, slot, roomType) {
+        // 1. Check if occupied
+        const state = this.registry.get('gameState');
+        const key = `${floor}_${slot}`;
+
+        // Check for ANY overlap if room is > 1 width
+        const roomDef = ECONOMY.ROOM_TYPES[roomType];
+        const width = roomDef.width || 1;
+
+        for (let i = 0; i < width; i++) {
+            const checkSlot = slot + i;
+            if (checkSlot >= ECONOMY.FLOOR.slotsPerFloor) return false; // Out of bounds
+
+            const checkKey = `${floor}_${checkSlot}`;
+            if (state.rooms[checkKey]) return false; // Occupied
+        }
+
+        // 2. Check Resources
+        // Already done in EconomyManager.buildRoom, but good to check here for UI feedback
+        // Skip strictly for now, let EconomyManager handle final say, but UI should match.
+
+        return true;
+    }
+
+    handleBuildClick(pointer) {
+        if (!this.isBuildingMode || !this.validPlacement) return;
+
+        // Right click to cancel
+        if (pointer.rightButtonDown()) {
+            this.cancelBuildMode();
+            return;
+        }
+
+        const worldPoint = pointer.positionToCamera(this.cameras.main);
+        const slotInfo = this.getFloorSlot(worldPoint.x, worldPoint.y);
+
+        if (slotInfo.isValid) {
+            // Tentative build
+            const success = this.economy.buildRoom(slotInfo.floorIndex, slotInfo.slotIndex, this.pendingRoom.roomType);
+
+            if (success) {
+                // Done
+                this.cancelBuildMode();
+            } else {
+                // Failed (e.g. money)
+                // Flash red or show error
+                this.cameras.main.shake(100, 0.005);
+            }
+        }
+    }
+
+    cancelBuildMode() {
+        this.isBuildingMode = false;
+        if (this.blueprint) {
+            this.blueprint.destroy();
+            this.blueprint = null;
+        }
+        this.pendingRoom = null;
+        this.events.emit('STOP_BUILDING'); // Notify UI
+    }
+
+    // Helper: Convert World X/Y to Grid Slot
+    getFloorSlot(x, y) {
+        // Find Floor
+        const startFloor = this.sceneConfig.startFloor;
+        const endFloor = this.sceneConfig.endFloor;
+
+        let floorIndex = -1;
+
+        // Search floors
+        for (let i = startFloor; i <= endFloor; i++) {
+            const floorY = this.getFloorY(i);
+            // Tolerance (e.g. +/- 100px around floor line)
+            if (Math.abs(y - (floorY - 100)) < 150) { // Biased upwards for rooms
+                floorIndex = i;
+                break;
+            }
+        }
+
+        if (floorIndex === -1) return { isValid: false };
+
+        // Find Slot
+        if (x < this.buildingBounds.minX || x > this.buildingBounds.maxX) {
+            return { isValid: false };
+        }
+
+        const width = this.buildingBounds.maxX - this.buildingBounds.minX;
+        const slotWidth = width / ECONOMY.FLOOR.slotsPerFloor;
+        const slotIndex = Math.floor((x - this.buildingBounds.minX) / slotWidth);
+
+        return { isValid: true, floorIndex, slotIndex };
+    }
+
+    // Called by EconomyManager to create visual
+    createRoomVisual(floor, slot, roomType) {
+        // Check if room belongs in this scene
+        if (floor < this.sceneConfig.startFloor || floor > this.sceneConfig.endFloor) return;
+
+        const roomDef = ECONOMY.ROOM_TYPES[roomType];
+
+        // Position
+        const slotWidth = (this.buildingBounds.maxX - this.buildingBounds.minX) / ECONOMY.FLOOR.slotsPerFloor;
+        const slotCenterX = this.buildingBounds.minX + (slot * slotWidth) + (slotWidth / 2);
+        const floorY = this.getFloorY(floor);
+        const visualOffset = -150 * this.mapScale; // Same as blueprint
+
+        // Create Sprite
+        const sprite = this.add.image(slotCenterX, floorY + visualOffset, roomDef.sprite || 'room_generator');
+        sprite.setScale(this.mapScale);
+        sprite.setDepth(10); // Behind player
+
+        // Store reference?
+        // Maybe group them?
+    }
+
+    // Restore rooms on load
+    restoreRooms() {
+        const state = this.registry.get('gameState');
+        if (!state || !state.rooms) return;
+
+        Object.entries(state.rooms).forEach(([key, room]) => {
+            const [floor, slot] = key.split('_').map(Number);
+            this.createRoomVisual(floor, slot, room.type);
+        });
     }
 
     update(time, delta) {
+        if (this.isBuildingMode) {
+            this.updateBuildMode();
+        }
 
-        if (!this.player) return;
-
-        // Initialize state if missing
         // Initialize state if missing
         if (!this.playerState) {
             this.playerState = 'IDLE';
@@ -1295,14 +1520,14 @@ export class GameScene extends Phaser.Scene {
             // ANIMATED SPRITE SHEET: Garden animation with transparent background
             if (this.textures.exists('garden_anim')) {
                 // Create animation if not already created
-                if (!this.anims.exists('garden_loop')) {
+                if (!this.anims.exists('garden_grow')) {
                     this.anims.create({
-                        key: 'garden_loop',
+                        key: 'garden_grow',
                         frames: this.anims.generateFrameNumbers('garden_anim'),
                         frameRate: 12,
-                        repeat: -1
+                        repeat: 0  // Play once and stop
                     });
-                    console.log('[Garden] Animation created');
+                    console.log('[Garden] Animation created (play once)');
                 }
 
                 // Create animated sprite
@@ -1321,7 +1546,7 @@ export class GameScene extends Phaser.Scene {
 
                 gardenSprite.setPosition(transform.x, transform.y);
                 gardenSprite.setScale(transform.scale);
-                gardenSprite.play('garden_loop');
+                gardenSprite.play('garden_grow');
 
                 this.roomVisuals[key] = gardenSprite;
                 console.log(`[Garden] Animated sprite created at (${roomX}, ${roomY})`);
@@ -1332,7 +1557,8 @@ export class GameScene extends Phaser.Scene {
             }
         } else if (roomType === 'water_purifier') {
             spriteKey = 'room_water';
-        } else if (roomType === 'power_generator') {
+        } else {
+            // Default: Use room_generator (scrap-v4) for all other rooms
             spriteKey = 'room_generator';
         }
 
@@ -1343,7 +1569,8 @@ export class GameScene extends Phaser.Scene {
             return sprite;
         }
 
-        // Fallback: create placeholder
+        // Final fallback: create placeholder (should never reach here if room_generator is loaded)
+        console.warn(`[createRoomVisual] Sprite '${spriteKey}' not found for room type '${roomType}', using placeholder`);
         const placeholder = this.add.rectangle(roomX, roomY, 100, 100, 0x00ff00, 0.3);
         this.roomVisuals[key] = placeholder;
         return placeholder;
