@@ -1,0 +1,2 @@
+icon_cash.png: Size=(403, 51), BBox=(2, 0, 400, 50), ContentHeight=50
+icon_energy.png: Size=(403, 49), BBox=(4, 0, 400, 49), ContentHeight=49

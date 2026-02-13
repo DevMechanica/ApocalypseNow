@@ -1,0 +1,7 @@
+File                                                         | Detected Hue    | Confidence
+----------------------------------------------------------------------------------------------------
+Removal-279.png                                              | Blue            | 0.89
+Removal-913.png                                              | Blue            | 0.88
+06508040-6bbb-4dc7-8382-78993f04ef3a_removalai_preview.png   | Blue            | 0.91
+3c1eaa1c-03d1-4e95-b28f-d6b28fb84dd6_removalai_preview.png   | Blue            | 0.94
+998c8cbb-17a3-488b-b6cf-b4eddbdb80e1_removalai_preview.png   | Blue            | 0.92

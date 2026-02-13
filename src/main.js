@@ -52,6 +52,9 @@ const scaleConfig = isMobile ? {
 const config = {
   type: Phaser.AUTO,
   parent: 'game-container',
+  dom: {
+    createContainer: true
+  },
   backgroundColor: '#0a1428',
   scale: scaleConfig,
   physics: {
