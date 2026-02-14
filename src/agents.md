@@ -8,7 +8,7 @@ The core logic and configuration hub of the game. It handles the game loop entry
 * `config.js`: The "Source of Truth" for game balance.
     * `CONFIG`: Assets paths, speed values.
     * `CONSTANTS`: Scene keys.
-    * `ECONOMY`: Resource definitions, room costs, survivor stats, threats, and biome data.
+    * `ECONOMY`: Resource definitions, room costs, **upgrade tuning** (`ECONOMY.UPGRADE`), survivor stats, threats, and biome data. Each production room has an `upgrade` block with `baseCost`, `costScaling`, and `outputMultiplier`.
     * `INITIAL_GAME_STATE`: The template for what goes into the Registry.
 * `economy.js`: The simulation engine.
     * `EconomyManager`: Handles the "Tick" loop (1s interval).
@@ -17,6 +17,12 @@ The core logic and configuration hub of the game. It handles the game loop entry
     * Emits `economyTick` events to update the UI.
     * Manages building rooms (`buildRoom`) and assigning survivors (`assignSurvivor`).
 
+### Systems (`systems/`)
+* `MachineUpgradeManager.js`: Upgrade logic controller. Handles cost scaling (`baseCost * scaling^level`), output calculation (`baseAmount * (1 + (level-1) * multiplier)`), and atomic upgrade transactions. Emits `machineUpgraded` events.
+* `ResourceProducer.js`: Per-room production component. Uses `getEffectiveAmount()` to scale output by room level.
+* `ResourceSystem.js`: Registry of all `ResourceProducer` instances. Handles tick distribution and collection.
+* `FloatingTextSystem.js`: Animated floating text feedback.
+
 ## Architecture & Data Flow
 * **Inputs**:
     * Time Daltas: `EconomyManager` runs on a timer.
@@ -24,6 +30,7 @@ The core logic and configuration hub of the game. It handles the game loop entry
 * **Outputs**:
     * Global State: Modifies `gameState` in Phaser Registry.
     * Events: Emits events like `economyTick` for the UI to consume.
+    * Events: `MachineUpgradeManager` emits `machineUpgraded` on successful upgrade.
     * Console Logs: Debug info for actions.
 * **State**:
     * **Phaser Registry**: The primary state container. The `EconomyManager` reads from and writes to `state.gameState`.

@@ -1,4 +1,5 @@
 import * as Phaser from 'phaser';
+
 import { PhaserResourceBars } from '../systems/PhaserResourceBars.js';
 import { CONSTANTS, ECONOMY, INITIAL_GAME_STATE } from '../config.js';
 
@@ -21,6 +22,7 @@ export class UIScene extends Phaser.Scene {
         // this.createResourceBars();
         this.createButtons();
         this.createBuildPopup();
+        this.createUpgradeDrawer();
         this.createPausePopup();
         this.createMapPopup();
         this.createSettingsPopup();
@@ -31,6 +33,8 @@ export class UIScene extends Phaser.Scene {
         const gameScene = this.scene.get(CONSTANTS.SCENES.GAME);
         if (gameScene) {
             gameScene.events.on('economyTick', this.updateAllResources, this);
+            gameScene.events.on('economyTick', this.updateUpgradeButtonStates, this);
+            gameScene.events.on('machineUpgraded', this.onMachineUpgraded, this);
         }
 
         // Listen for registry changes
@@ -308,10 +312,15 @@ export class UIScene extends Phaser.Scene {
             return btn;
         };
 
+        // Track buttons for animation
+        this.bottomNavInteractables = [];
+
         // 1. Character Button (Left) - NOW CENTERED
         const btnChar = setupBottomButton(0, 'btn_char');
         const btnUpgrades = setupBottomButton(0, 'btn_upgrades');
         const btnAchiev = setupBottomButton(0, 'btn_achiev');
+
+        this.bottomNavInteractables.push(btnChar, btnUpgrades, btnAchiev);
 
         // State for active menu
         this.activeMenuBtn = null;
@@ -366,7 +375,10 @@ export class UIScene extends Phaser.Scene {
         btnUpgrades.x = currentX;
         btnUpgrades.y = lowerY;
 
-        addBouncyClick(btnUpgrades, () => console.log('Upgrades Menu Clicked'));
+        addBouncyClick(btnUpgrades, () => {
+            this.toggleUpgradeDrawer();
+        });
+
 
         // Position 3: Achievements
         currentX += (btnUpgrades.displayWidth / 2) + (btnAchiev.displayWidth / 2) + btnSpacing;
@@ -389,10 +401,8 @@ export class UIScene extends Phaser.Scene {
         const buildScale = targetBuildHeight / buildBtn.height;
         buildBtn.setScale(buildScale);
 
-        // Reposition build button to be consistent with bottom alignment
-        // User feedback: "touch the most right" and "most down"
-        // forceful alignment using Origin (1, 1) = Bottom Right
-        buildBtn.setOrigin(1, 1);
+        // Reposition build button to bottom-right corner
+        buildBtn.setOrigin(0.95, 0.95);
         buildBtn.setPosition(width, height);
 
         buildBtn.on('pointerdown', () => {
@@ -1159,6 +1169,693 @@ export class UIScene extends Phaser.Scene {
             });
 
             container.add([slot, icon, nameText, costBg, costText]);
+        });
+    }
+
+    // =========================================================================
+    // UPGRADE POPUP
+    // =========================================================================
+
+    // =========================================================================
+    // UI HELPERS (HYBRID: USER BACKGROUND + PROCEDURAL ELEMENTS)
+    // =========================================================================
+
+    createIndustrialPanel(w, h) {
+        const container = this.add.container(0, 0);
+
+        // Use user-provided background
+        if (this.textures.exists('ui_upgrade_panel')) {
+            const panel = this.add.image(0, 0, 'ui_upgrade_panel').setOrigin(0.5, 0);
+
+            // "Cover" scaling: Scale to fill dimensions
+            const scaleX = w / panel.width;
+            const scaleY = h / panel.height;
+            // Use max to ensure it covers the height (since it's portrait)
+            const scale = Math.max(scaleX, scaleY);
+
+            // User requested "stretch horizontally a little" but "1.15 was too wide"
+            // Reduced to 5% stretch.
+            panel.setScale(scale * 1.05, scale);
+
+            panel.setPosition(w / 2, 0);
+            container.add(panel);
+        } else {
+            // Fallback if asset missing (safety)
+            const bg = this.add.rectangle(0, 0, w, h, 0x222222).setOrigin(0);
+            container.add(bg);
+        }
+
+        return container;
+    }
+
+    // Type: 'green', 'gray', 'red'
+    createIndustrialButton(w, h, textStr, type = 'green', callback) {
+        const container = this.add.container(0, 0);
+
+        const colors = {
+            green: { base: 0x4a8a3a, light: 0x6aba5a, dark: 0x2a5a2a, text: '#ffffff' },
+            gray: { base: 0x4a4a4a, light: 0x6a6a6a, dark: 0x2a2a2a, text: '#aaaaaa' },
+            red: { base: 0x8a3a3a, light: 0xba5a5a, dark: 0x5a2a2a, text: '#ffffff' }
+        };
+        const c = colors[type] || colors.green;
+
+        const bg = this.add.graphics();
+        container.add(bg);
+
+        const drawBtn = (isPressed) => {
+            bg.clear();
+            const yOff = isPressed ? 2 : 0;
+
+            // Shadow/Bevel Bottom
+            bg.fillStyle(c.dark, 1);
+            bg.fillRoundedRect(0, 0 + yOff, w, h, 6);
+
+            // Main Body
+            bg.fillStyle(c.base, 1);
+            bg.fillRoundedRect(0, 0 + yOff, w, h - 4, 6);
+
+            // Highlight Top
+            bg.fillStyle(c.light, 1);
+            bg.fillRoundedRect(2, 2 + yOff, w - 4, h / 2 - 4, { tl: 4, tr: 4, bl: 0, br: 0 });
+        };
+
+        drawBtn(false);
+
+        // Text
+        const text = this.add.text(Math.round(w / 2), Math.round(h / 2 - 2), textStr, {
+            fontSize: '16px',
+            fontFamily: 'Arial',
+            fontStyle: 'bold',
+            color: c.text,
+            shadow: { offsetX: 1, offsetY: 1, color: '#000000', fill: true }
+        }).setOrigin(0.5).setResolution(2);
+        container.add(text);
+
+        // Interactive Region
+        container.setSize(w, h);
+        container.setInteractive();
+
+        if (type !== 'gray') {
+            container.on('pointerdown', (pointer, localX, localY, event) => {
+                if (event) event.stopPropagation(); // Stop map drag
+                drawBtn(true);
+                text.y += 2;
+                if (callback) callback();
+            });
+            container.on('pointerup', () => {
+                drawBtn(false);
+                text.y -= 2;
+            });
+            container.on('pointerout', () => {
+                drawBtn(false);
+                text.y = h / 2 - 2;
+            });
+        }
+
+        container.btnBg = bg; // Reference for updates
+        return container;
+    }
+
+    createSlotBackground(w, h) {
+        const container = this.add.container(0, 0);
+        const g = this.add.graphics();
+
+        // Simple semi-transparent dark background for slots
+        // to let the main background show through slightly if desired, or just solid
+        g.fillStyle(0x000000, 0.6);
+        g.fillRoundedRect(0, 0, w, h, 12);
+
+        // Border
+        g.lineStyle(2, 0x555555, 1);
+        g.strokeRoundedRect(0, 0, w, h, 12);
+
+        container.add(g);
+        return container;
+    }
+
+    // =========================================================================
+    // UPGRADE POPUP (REFACTORED)
+    // =========================================================================
+
+    createUpgradeDrawer() {
+        const width = this.cameras.main.width;
+        const height = this.cameras.main.height;
+
+        // Drawer dimensions
+        const drawerH = height * 0.65;
+        this.drawerHeight = drawerH;
+
+        const container = this.add.container(0, height); // Start off-screen
+        container.setDepth(90);
+        this.upgradeDrawer = container;
+        this.isDrawerOpen = false;
+
+        // 0. Input Blocker (Prevents map interaction behind drawer)
+        const inputBlocker = this.add.rectangle(0, 0, width, drawerH, 0x000000, 0).setOrigin(0);
+        inputBlocker.setInteractive();
+        inputBlocker.on('pointerdown', (pointer, localX, localY, event) => {
+            if (event) event.stopPropagation();
+        });
+        container.add(inputBlocker);
+
+        // 1. Background Panel (Asset)
+        const panel = this.createIndustrialPanel(width, drawerH);
+        container.add(panel);
+
+        // Title
+        // Title
+        const titleText = this.add.text(Math.round(width / 2), 41, 'Machine upgrades', {
+            fontSize: '26px',
+            fontFamily: 'Impact, Arial Black',
+            color: '#ffffff',
+            stroke: '#000000',
+            strokeThickness: 4,
+        }).setOrigin(0.5).setResolution(2);
+
+        container.add(titleText);
+
+        /*
+        // Title "Badge" behind text
+        const titleBadge = this.add.graphics();
+        titleBadge.fillStyle(0x000000, 0.5);
+        titleBadge.fillRoundedRect(width / 2 - titleText.width / 2 - 20, 10, titleText.width + 40, 50, 4);
+        
+        container.add(titleBadge);
+        // container.add(titleText); // Already added above
+        */
+
+        // Close Button — created here but added to container later (after dragZone)
+        // so it sits on top and can receive click events
+        const closeBtn = this.createIndustrialButton(30, 30, 'X', 'red', () => this.toggleUpgradeDrawer());
+        closeBtn.x = width - 47;
+        closeBtn.y = 30;
+
+        // Increase hit area for easier clicking (centered at 15,15 relative to container)
+        // Rectangle: x, y, width, height
+        closeBtn.setInteractive(new Phaser.Geom.Rectangle(-15, -15, 60, 60), Phaser.Geom.Rectangle.Contains);
+
+
+
+        // Listen for global upgrade events to refresh UI
+        const gameScene = this.scene.get(CONSTANTS.SCENES.GAME);
+        if (gameScene) {
+            gameScene.events.on('machineUpgraded', (data) => {
+                // Refresh slot list (content)
+                if (this.isDrawerOpen) this.refreshUpgradeSlots();
+                // Show feedback text
+                this.onMachineUpgraded(data);
+            }, this);
+        }
+
+        // --- SCROLLABLE CONTENT AREA ---
+        // We also need to hide the slots.
+
+        // --- SCROLLABLE CONTENT AREA ---
+        this.upgradeWindowW = width * 0.92;
+        this.upgradeContentTopY = 80;
+        const scrollAreaH = drawerH - 90;
+        this.upgradeScrollAreaH = scrollAreaH;
+
+        // Mask (Re-enabled)
+        const maskShape = this.make.graphics({ x: 0, y: 0, add: false });
+        maskShape.fillStyle(0xffffff);
+        maskShape.fillRect((width - this.upgradeWindowW) / 2, 0, this.upgradeWindowW, scrollAreaH);
+        const mask = maskShape.createGeometryMask();
+        this.upgradeMaskGraphics = maskShape; // Assign for tween updates
+
+        // Drag Zone
+        const dragZone = this.add.rectangle(
+            width / 2, this.upgradeContentTopY + scrollAreaH / 2,
+            width, scrollAreaH,
+            0x000000, 0
+        ).setInteractive({ draggable: true })
+            .on('pointerdown', (pointer, localX, localY, event) => {
+                if (event) event.stopPropagation();
+            });
+        container.add(dragZone);
+
+        // Scroll Container (Added AFTER DragZone so buttons are clickable)
+        this.upgradeScrollContainer = this.add.container(0, this.upgradeContentTopY);
+        container.add(this.upgradeScrollContainer);
+        this.upgradeScrollContainer.setMask(mask);
+
+        // Drag Logic
+        let dragStartY = 0;
+        let scrollStartY = 0;
+
+        dragZone.on('dragstart', (pointer) => {
+            dragStartY = pointer.y;
+            scrollStartY = this.upgradeScrollY;
+        });
+
+        dragZone.on('drag', (pointer) => {
+            const deltaY = pointer.y - dragStartY;
+            this.upgradeScrollY = Phaser.Math.Clamp(
+                scrollStartY + deltaY,
+                -this.upgradeScrollMax,
+                0
+            );
+            this.upgradeScrollContainer.y = this.upgradeScrollY + this.upgradeContentTopY;
+        });
+
+        this.input.on('wheel', (pointer, gameObjects, deltaX, deltaY) => {
+            if (!this.isDrawerOpen) return;
+            // Simple global wheel for now
+            this.upgradeScrollY = Phaser.Math.Clamp(
+                this.upgradeScrollY - deltaY * 0.5,
+                -this.upgradeScrollMax,
+                0
+            );
+            this.upgradeScrollContainer.y = this.upgradeScrollY + this.upgradeContentTopY;
+        });
+
+        // Add close button LAST so it layers on top of the drag zone
+        container.add(closeBtn);
+
+        // Initialize empty
+        this.upgradeSlotElements = [];
+        this.upgradeEmptyLabel = this.add.text(width / 2, drawerH / 2, 'No machines available.', {
+            fontSize: '18px',
+            color: '#888888'
+        }).setOrigin(0.5);
+        container.add(this.upgradeEmptyLabel);
+    }
+
+    toggleUpgradeDrawer() {
+        if (!this.upgradeDrawer) return;
+
+        this.isDrawerOpen = !this.isDrawerOpen;
+        const height = this.cameras.main.height;
+
+        // Offset: "bring it down a bit" -> +50px
+        const openY = (height - this.drawerHeight) + 50;
+        const targetY = this.isDrawerOpen ? openY : height;
+
+        // 1. Tween Drawer
+        this.tweens.add({
+            targets: this.upgradeDrawer,
+            y: targetY,
+            duration: 300,
+            ease: 'Power2',
+            onUpdate: () => {
+                // Keep mask valid if needed (GeometryMask is static usually)
+                // For simple rect masks, we might need to update the graphics position
+                if (this.upgradeMaskGraphics) {
+                    this.upgradeMaskGraphics.y = this.upgradeDrawer.y + this.upgradeContentTopY;
+                }
+            }
+        });
+
+        // 2. Tween Navigation Buttons (Lift Effect)
+        // We want them to sit on top of the drawer title
+        // Original logic: overlap 20px.
+        // New logic: Drawer is 50px lower. 
+        // User says "buttons are getting cut off, want them slightly up".
+        // Previous offset was -(this.drawerHeight - 70).
+        // To move them UP more, we need a larger negative number (magnitude).
+        // (drawerHeight - 50) is larger than (drawerHeight - 70).
+        // So we try -(this.drawerHeight - 50).
+        const navTargetYOffset = this.isDrawerOpen ? -(this.drawerHeight - 65) : 0;
+
+        // We know the original Y (around height - 40/50).
+        // Let's store original Ys if not stored.
+        if (!this.navButtonsOriginalY) {
+            this.navButtonsOriginalY = this.bottomNavInteractables.map(b => b.y);
+        }
+
+        this.bottomNavInteractables.forEach((btn, index) => {
+            this.tweens.add({
+                targets: btn,
+                y: this.navButtonsOriginalY[index] + navTargetYOffset,
+                duration: 300,
+                ease: 'Power2'
+            });
+        });
+
+        // 3. Logic
+        if (this.isDrawerOpen) {
+            this.refreshUpgradeSlots();
+        }
+    }
+
+    /**
+     * Rebuild all upgrade slots from current game state.
+     * Called when the popup opens or after an upgrade.
+     */
+    refreshUpgradeSlots() {
+        // Clear old
+        if (this.upgradeSlotElements) {
+            this.upgradeSlotElements.forEach(el => el.destroy());
+        }
+        this.upgradeSlotElements = [];
+
+        this.upgradeScrollY = 0;
+        if (this.upgradeScrollContainer) {
+            this.upgradeScrollContainer.y = this.upgradeContentTopY;
+        }
+
+        const gameScene = this.scene.get(CONSTANTS.SCENES.GAME);
+        if (!gameScene || !gameScene.upgradeManager) {
+            if (this.upgradeEmptyLabel) this.upgradeEmptyLabel.setVisible(true);
+            return;
+        }
+
+        const upgradeManager = gameScene.upgradeManager;
+        const rooms = upgradeManager.getUpgradeableRooms();
+
+        if (rooms.length === 0) {
+            if (this.upgradeEmptyLabel) this.upgradeEmptyLabel.setVisible(true);
+            return;
+        }
+        if (this.upgradeEmptyLabel) this.upgradeEmptyLabel.setVisible(false);
+
+        // Group rooms by machine TYPE (one card per type)
+        const roomsByType = {};
+        rooms.forEach((room) => {
+            if (!roomsByType[room.type]) {
+                roomsByType[room.type] = [];
+            }
+            roomsByType[room.type].push(room);
+        });
+
+        const width = this.cameras.main.width;
+        const slotW = 370;
+        const slotH = 160;
+        const gap = 7;
+        const startX = width / 2;
+        let currentY = 10;
+
+        // Reset button tracking
+        this.upgradeButtons = [];
+
+        const scrollTarget = this.upgradeScrollContainer;
+        if (!scrollTarget) return;
+
+        Object.entries(roomsByType).forEach(([type, typeRooms]) => {
+            // Pick the first (lowest level) room as representative
+            const room = typeRooms.sort((a, b) => a.level - b.level)[0];
+
+            // 1. Card background
+            if (this.textures.exists('ui_upgrade_card')) {
+                const card = this.add.image(startX, currentY + slotH / 2, 'ui_upgrade_card');
+                card.setOrigin(0.5);
+                card.setDisplaySize(slotW, slotH);
+                card.setCrop();
+
+                scrollTarget.add(card);
+                this.upgradeSlotElements.push(card);
+
+                // Border
+                const border = this.add.graphics();
+                border.lineStyle(2, 0x555555, 1);
+                border.strokeRoundedRect(startX - slotW / 2, currentY, slotW, slotH, 12);
+                scrollTarget.add(border);
+                this.upgradeSlotElements.push(border);
+
+                // --- Machine Icon (left side) ---
+                const iconKey = room.roomDef.sprite;
+                if (iconKey && this.textures.exists(iconKey)) {
+                    const iconX = startX - slotW / 2 + 58;
+                    const iconY = currentY + slotH / 2 - 23;
+                    const icon = this.add.image(iconX, iconY, iconKey);
+                    // Per-type icon sizing
+                    const iconSizes = { 'room_garden': 95, 'room_generator': 80 };
+                    const iconMaxSize = iconSizes[iconKey] || 85;
+                    const iconScale = Math.min(iconMaxSize / icon.width, iconMaxSize / icon.height);
+                    icon.setScale(iconScale);
+                    icon.setOrigin(0.5);
+                    scrollTarget.add(icon);
+                    this.upgradeSlotElements.push(icon);
+                }
+
+                // --- Room Name + Level (Top Section) ---
+                const textX = startX - slotW / 2 + 110;
+                const nameY = currentY + slotH / 2 - 30; // Base anchor point (moves block up/down)
+                const maxTextW = slotW - 280;
+
+                // 1. Name
+                const nameText = this.add.text(textX, nameY, room.roomDef.name || type, {
+                    fontSize: '18px',
+                    fontFamily: 'Arial',
+                    color: '#ffffff',
+                    fontStyle: 'bold',
+                    stroke: '#000000',
+                    strokeThickness: 3,
+                    wordWrap: { width: maxTextW }
+                }).setOrigin(0, 0.5).setResolution(2);
+                scrollTarget.add(nameText);
+                this.upgradeSlotElements.push(nameText);
+
+                // 2. Level (Immediately below Name)
+                const countStr = typeRooms.length > 1 ? ` (x${typeRooms.length})` : '';
+                const levelText = this.add.text(textX, nameY + 30, `Level ${room.level}${countStr}`, {
+                    fontSize: '12px',
+                    fontFamily: 'Arial',
+                    color: '#cccccc',
+                    stroke: '#000000',
+                    strokeThickness: 2
+                }).setOrigin(0, 0.5).setResolution(2);
+                scrollTarget.add(levelText);
+                this.upgradeSlotElements.push(levelText);
+
+                // --- Description + Stats (Bottom Section) ---
+                // Combined Guide: "Description - Stats"
+                const currentOutput = upgradeManager.getCurrentOutput(room.type, room.level);
+                const nextOutput = upgradeManager.getCurrentOutput(room.type, room.level + 1);
+
+                let resType = 'Resources';
+                const roomDef = ECONOMY.ROOM_TYPES[room.type];
+                if (roomDef.production) {
+                    if (roomDef.production.power) resType = 'Energy';
+                    else if (roomDef.resourceProducer && roomDef.resourceProducer.outputType) {
+                        resType = roomDef.resourceProducer.outputType;
+                        resType = resType.charAt(0).toUpperCase() + resType.slice(1);
+                    } else {
+                        const key = Object.keys(roomDef.production)[0];
+                        if (key) resType = key.charAt(0).toUpperCase() + key.slice(1);
+                    }
+                }
+
+                const desc = room.roomDef.description || 'Production';
+                const statInfo = `${currentOutput.toFixed(1)}/s -> ${nextOutput.toFixed(1)}/s ${resType}`;
+                const combinedStr = `${desc}   |   ${statInfo}`;
+
+                // Left align with the card (under icon)
+                const descTextX = startX - slotW / 2 + 20;
+
+                // Description Line
+                const descText = this.add.text(descTextX, nameY + 72.5, desc, {
+                    fontSize: '14px',
+                    fontFamily: 'Monospace',
+                    color: '#aaddaa', // Light green
+                    stroke: '#000000',
+                    strokeThickness: 2,
+                    wordWrap: { width: slotW - 30 }
+                }).setOrigin(0, 0.5).setResolution(2);
+                scrollTarget.add(descText);
+                this.upgradeSlotElements.push(descText);
+
+                // Stats Line (Next Line)
+                const statsText = this.add.text(descTextX, nameY + 90, statInfo, {
+                    fontSize: '14px',
+                    fontFamily: 'Monospace',
+                    color: '#aaddaa',
+                    stroke: '#000000',
+                    strokeThickness: 2,
+                    wordWrap: { width: slotW - 30 }
+                }).setOrigin(0, 0.5).setResolution(2);
+                scrollTarget.add(statsText);
+                this.upgradeSlotElements.push(statsText);
+
+                // --- Upgrade Button (Image-based) ---
+                const affordability = upgradeManager.canAffordUpgrade(room.key);
+                const canAfford = affordability.canAfford;
+                const failureReason = affordability.reason;
+                const isMax = upgradeManager.isMaxLevel(room.key);
+                const cost = upgradeManager.getUpgradeCost(room.type, room.level);
+
+                if (isMax) {
+                    const maxLabel = this.add.text(startX + slotW / 2 - 60, currentY + slotH / 2, 'MAX', {
+                        fontSize: '16px',
+                        fontFamily: 'Arial',
+                        color: '#ffdd44',
+                        fontStyle: 'bold',
+                        stroke: '#000000',
+                        strokeThickness: 3
+                    }).setOrigin(0.5).setResolution(2);
+                    scrollTarget.add(maxLabel);
+                    this.upgradeSlotElements.push(maxLabel);
+                } else {
+                    const btnKey = canAfford ? 'ui_btn_upgrade_green' : 'ui_btn_upgrade_gray';
+                    const btnW = 140;
+                    const btnH = 110;
+                    const btnX = startX + slotW / 2 - btnW / 2 - 10;
+                    const btnY = currentY + slotH / 2 - 20;
+
+                    // Create Container for unified animation (Button + Text)
+                    const btnContainer = this.add.container(btnX, btnY);
+
+                    const btn = this.add.image(0, 0, btnKey);
+                    btn.setOrigin(0.5);
+                    btn.setDisplaySize(btnW, btnH);
+
+                    // Ensure interactive (on top layer checks handled by container add order)
+                    // Use rectangle hit area for consistent behavior
+                    btn.setInteractive(new Phaser.Geom.Rectangle(0, 0, btn.width, btn.height), Phaser.Geom.Rectangle.Contains);
+
+                    // Cost Logic
+                    let costText = '';
+                    let costColor = '#dddddd';
+
+                    if (!canAfford && failureReason === 'Insufficient Grid Capacity') {
+                        costText = 'NEED POWER\n(Grid Full)';
+                        costColor = '#ff5555';
+                    } else if (cost) {
+                        const lines = [];
+                        if (cost.materials) lines.push(`${cost.materials} Scrap`);
+                        if (cost.caps) lines.push(`${cost.caps} Money`);
+                        if (cost.powerDelta) lines.push(`+${cost.powerDelta} Pwr`);
+                        costText = lines.join('\n');
+                    }
+
+                    // "Upgrade" label at top
+                    const upgradeLabel = this.add.text(0, -20, 'Upgrade', {
+                        fontSize: '18px',
+                        fontFamily: 'Arial',
+                        color: '#ffffff',
+                        fontStyle: 'bold',
+                        stroke: '#000000',
+                        strokeThickness: 3
+                    }).setOrigin(0.5).setResolution(2);
+
+                    // Cost label at bottom
+                    const costLabel = this.add.text(0, 10, costText, {
+                        fontSize: '14px',
+                        fontFamily: 'Arial',
+                        color: costColor,
+                        stroke: '#000000',
+                        strokeThickness: 2,
+                        align: 'center',
+                        wordWrap: { width: btnW - 10 }
+                    }).setOrigin(0.5).setResolution(2);
+
+                    // Add to Container
+                    btnContainer.add([btn, upgradeLabel, costLabel]);
+                    scrollTarget.add(btnContainer);
+                    this.upgradeSlotElements.push(btnContainer);
+
+                    // Interaction
+                    btn.on('pointerover', () => {
+                        // Optional hover
+                    });
+                    btn.on('pointerout', () => {
+                        btn.clearTint();
+                    });
+
+                    btn.on('pointerdown', () => {
+                        if (canAfford) {
+                            // Press Effect: Darker Tint
+                            btn.setTint(0x999999);
+
+                            // Visual feedback (animate container)
+                            this.tweens.add({
+                                targets: btnContainer,
+                                scaleX: 0.95,
+                                scaleY: 0.95,
+                                y: btnY + 4, // Move container down
+                                duration: 80,
+                                yoyo: true,
+                                onComplete: () => {
+                                    btn.clearTint(); // Restore brightness
+                                    // Upgrade ALL machines of this type
+                                    const success = upgradeManager.upgradeMachineType(room.type);
+                                    if (success) {
+                                        // Event 'machineUpgraded' is emitted by manager and handled globally
+                                        // No need to call this.onMachineUpgraded manually (fixes double text)
+                                        console.log(`Global upgrade triggered for ${room.type}`);
+                                    }
+                                }
+                            });
+                        } else {
+                            // Disabled feedback (shake container)
+                            this.tweens.add({
+                                targets: btnContainer,
+                                x: btnX + 5,
+                                duration: 50,
+                                yoyo: true,
+                                repeat: 3,
+                                onComplete: () => {
+                                    btnContainer.x = btnX; // Reset position
+                                }
+                            });
+                        }
+                    });
+
+                    this.upgradeButtons.push({
+                        roomKey: room.key,
+                        container: btnContainer,
+                        btn: btn,
+                        upgradeLabel: upgradeLabel,
+                        costLabel: costLabel
+                    });
+                }
+
+
+            }
+
+            // Advance Y for next slot
+            currentY += slotH + gap;
+        });
+
+        // Calculate scroll bounds
+        // Add extra padding at bottom so last card isn't cut off
+        const contentHeight = currentY + 100;
+        this.upgradeScrollMax = Math.max(0, contentHeight - this.upgradeScrollAreaH);
+    }
+
+
+
+    /**
+     * Event handler: called when a machine is successfully upgraded.
+     * Rebuilds the upgrade slots to reflect the new state.
+     */
+    onMachineUpgraded(data) {
+        console.log(`[UIScene] Machine upgraded: ${data.roomType} Lv.${data.oldLevel} → Lv.${data.newLevel}`);
+
+        // Refresh the popup if it's visible
+        if (this.upgradePopup && this.upgradePopup.visible) {
+            this.refreshUpgradeSlots();
+        }
+
+        // Show floating feedback on the HUD
+        const width = this.cameras.main.width;
+        const height = this.cameras.main.height;
+        const roomDef = ECONOMY.ROOM_TYPES[data.roomType];
+        const name = roomDef ? roomDef.name : data.roomType;
+        this.showFloatingMessage(width / 2, height / 2 - 100, `${name} → Lv.${data.newLevel}!`, 0x44ff44);
+    }
+
+    /**
+     * Update upgrade button enabled/disabled states based on current resources.
+     * Called on every economyTick — lightweight, only updates alpha/color.
+     */
+    updateUpgradeButtonStates() {
+        if (!this.upgradePopup || !this.upgradePopup.visible) return;
+        if (!this.upgradeButtons || this.upgradeButtons.length === 0) return;
+
+        const gameScene = this.scene.get(CONSTANTS.SCENES.GAME);
+        if (!gameScene || !gameScene.upgradeManager) return;
+
+        const upgradeManager = gameScene.upgradeManager;
+
+        this.upgradeButtons.forEach(ref => {
+            const canAfford = upgradeManager.canAffordUpgrade(ref.roomKey);
+
+            if (canAfford) {
+                ref.btnContainer.setAlpha(1.0);
+            } else {
+                ref.btnContainer.setAlpha(0.5);
+            }
         });
     }
 

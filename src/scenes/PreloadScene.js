@@ -44,7 +44,7 @@ export class PreloadScene extends Phaser.Scene {
         // Load Assets
         // Map Scenes (1-10)
         for (let i = 1; i <= 10; i++) {
-            this.load.image(`scene_${i}`, `${CONFIG.mapPath}${i}.png`);
+            this.load.image(`scene_${i}`, `${CONFIG.mapPath}${i}.webp`);
         }
 
         this.load.image('player', CONFIG.characterPath);
@@ -81,6 +81,12 @@ export class PreloadScene extends Phaser.Scene {
         this.load.image('btn_char_inactive', 'ui_icons/btn_characters_inactive.png');
         this.load.image('btn_upgrades_active', 'ui_icons/btn_upgrades_active.png');
         this.load.image('btn_upgrades_inactive', 'ui_icons/btn_upgrades_inactive.png');
+
+        // Industrial UI Assets
+        this.load.image('ui_upgrade_panel', 'Objects/Upgrade_menu/upgrade-menu-background-transparent.png');
+        this.load.image('ui_upgrade_card', 'Objects/Upgrade_menu/upgrade-cards-transparent.png');
+        this.load.image('ui_btn_upgrade_green', 'Objects/Upgrade_menu/green_upgrade_button.png');
+        this.load.image('ui_btn_upgrade_gray', 'Objects/Upgrade_menu/gray_upgrade_button.png');
 
         // Room sprites
         this.load.image('room_garden', 'Objects/Garden/hydroponic_garden.png');

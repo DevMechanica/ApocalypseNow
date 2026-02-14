@@ -1,6 +1,7 @@
 import * as Phaser from 'phaser';
 import { CONSTANTS, CONFIG, ECONOMY } from '../config.js';
 import { EconomyManager } from '../economy.js';
+import { MachineUpgradeManager } from '../systems/MachineUpgradeManager.js';
 import { FloatingTextSystem } from '../systems/FloatingTextSystem.js';
 import { MAP_OBJECTS_CONFIG } from '../mapObjectsConfig.js';
 
@@ -52,6 +53,9 @@ export class GameScene extends Phaser.Scene {
         // Initialize Economy Manager
         this.economy = new EconomyManager(this);
         this.economy.init();
+
+        // Initialize Upgrade Manager
+        this.upgradeManager = new MachineUpgradeManager(this);
 
         // Restore Existing Rooms
         this.restoreRooms();

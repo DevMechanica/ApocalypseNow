@@ -7,7 +7,11 @@ Handles the visual presentation and state inputs of the game using the Phaser 3 
 * `BootScene.js`: Minimal scene to initialize the game and immediately switch to Preloading.
 * `PreloadScene.js`: Loads all assets (images, sprites) and displays a loading bar. Transition to GameScene upon completion.
 * `GameScene.js`: The "World" view. Handles the map, player character, RTS movement logic, camera controls (pan/zoom), and physics bounds.
-* `UIScene.js`: The HUD overlay. Manages resource bars, buttons, and popups (Build, Map, Settings). Runs in parallel with GameScene.
+* `UIScene.js`: The HUD overlay. Manages resource bars, buttons, and popups (Build, **Upgrade**, Map, Settings). Runs in parallel with GameScene.
+- **`createUpgradeDrawer()`**: Creates the **Upgrade Drawer** container (starts hidden below screen). Uses procedural graphics for an industrial metal look. Contains a masked scrollable area for upgrade slots.
+- **`toggleUpgradeDrawer()`**: Animates the drawer sliding up/down and "lifts" the bottom navigation buttons to sit on top of the drawer.
+- **`refreshUpgradeSlots()`**: Dynamically regenerates upgrade slots within the drawer based on `MachineUpgradeManager` data. Uses procedural graphics for slot cards and buttons.
+- **`onMachineUpgraded(data)`**: Event handler that triggers a slot refresh and shows floating text feedback. Button states update on every `economyTick` (event-driven, no polling).
 
 ## Grid System (8-Slot)
 Every bunker floor is divided into **8 horizontal slots**. All room/object assets must define their `width` in slots.
@@ -52,8 +56,9 @@ Grid values are defined in **`grid_config.json`** at the project root. Both Pyth
 
 ## Dependencies
 * **Phaser**: The core engine powering these scenes.
-* **../config.js**: access to `CONSTANTS` and `CONFIG`.
+* **../config.js**: access to `CONSTANTS`, `CONFIG`, and `ECONOMY` (including `ECONOMY.UPGRADE`).
 * **../economy.js**: `GameScene` initializes the `EconomyManager`.
+* **../systems/MachineUpgradeManager.js**: `GameScene` initializes the `MachineUpgradeManager`. `UIScene` accesses it via `gameScene.upgradeManager`.
 
 ## Coding Standards
 * **Scene Separation**: Keep World logic in GameScene and HUD logic in UIScene.
