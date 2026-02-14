@@ -125,25 +125,49 @@ export class EconomyManager {
     /**
      * Calculate net power (production - consumption)
      */
+    /**
+     * Calculate net power (production - consumption)
+     * Updates state.powerCapacity and state.powerLoad for UI and Logic.
+     */
     calculatePower(state) {
         let powerProduction = 0;
         let powerConsumption = 0;
+        const upgradeManager = this.scene.upgradeManager;
 
         Object.entries(state.rooms).forEach(([key, room]) => {
             const roomDef = ECONOMY.ROOM_TYPES[room.type];
             if (!roomDef) return;
 
+            // Power Production (Generators)
             if (roomDef.production && roomDef.production.power) {
                 const workerCount = room.workers ? room.workers.length : 0;
                 const efficiency = Math.min(workerCount / Math.max(roomDef.maxWorkers, 1), 1);
-                powerProduction += roomDef.production.power * efficiency * (room.level || 1);
+
+                let nominalOutput = 0;
+                if (upgradeManager) {
+                    nominalOutput = upgradeManager.getCurrentOutput(room.type, room.level);
+                } else {
+                    nominalOutput = roomDef.production.power * (room.level || 1);
+                }
+
+                powerProduction += nominalOutput * efficiency;
             }
 
-            powerConsumption += roomDef.powerCost || 0;
+            // Power Consumption (Load)
+            let load = 0;
+            if (upgradeManager) {
+                load = upgradeManager.getPowerLoad(room.type, room.level);
+            } else {
+                load = roomDef.powerCost || 0;
+            }
+            powerConsumption += load;
         });
 
         // Net power is production minus consumption
+        state.powerCapacity = powerProduction;
+        state.powerLoad = powerConsumption;
         state.netPower = powerProduction - powerConsumption;
+        state.resources.power = Math.max(0, state.netPower); // Update resource for UI
     }
 
     /**
