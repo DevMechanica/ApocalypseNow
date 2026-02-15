@@ -61,6 +61,9 @@ export class PreloadScene extends Phaser.Scene {
         this.load.image('icon_pause', 'ui_icons/icon_pause.png');
         this.load.image('icon_settings', 'ui_icons/icon_settings.png');
         this.load.image('icon_map', 'ui_icons/icon_map.png');
+        this.load.image('icon_map', 'ui_icons/icon_map.png');
+        this.load.image('day_counter', 'ui_icons/day_counter.png');
+        this.load.image('until_wave_counter', 'ui_icons/until_wave_counter.png');
         // this.load.image('icon_build', 'ui_icons/icon_build.png'); // Replaced by btn_build
 
         // New Right-Side Buttons (Anonymous for now)
