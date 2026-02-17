@@ -263,10 +263,17 @@ def generate_scene(scene_data, assets, output_dir):
             current_y += effective_floor_h
 
     # Save
-    output_filename = f"scene_{scene_data['id']}.png"
-    output_path = os.path.join(output_dir, output_filename)
-    full_bg.save(output_path, compress_level=1) # Optimization: Faster save
-    print(f"Saved: {output_filename}")
+    # Save as PNG (High Quality Source)
+    output_filename_png = f"scene_{scene_data['id']}.png"
+    output_path_png = os.path.join(output_dir, output_filename_png)
+    full_bg.save(output_path_png, compress_level=1)
+    
+    # Save as WebP (Game Ready Asset)
+    output_filename_webp = f"scene_{scene_data['id']}.webp"
+    output_path_webp = os.path.join(output_dir, output_filename_webp)
+    full_bg.save(output_path_webp, format='WEBP', quality=85)
+    
+    print(f"Saved: {output_filename_png} & {output_filename_webp}")
 
 def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))

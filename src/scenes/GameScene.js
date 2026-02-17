@@ -21,6 +21,9 @@ const GRID_CONFIG = {
         water_purifier: -1,
         scrap_machine: 90
     },
+    assetXOffsets: {
+        scrap_machine: -60
+    },
     assetScales: {
         scrap_machine: 0.80
     }
@@ -47,6 +50,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     create() {
+        const screenWidth = this.scale.width;
+        const screenHeight = this.scale.height;
+
         // Room visual registry (key -> sprite)
         this.roomVisuals = {};
 
@@ -71,87 +77,33 @@ export class GameScene extends Phaser.Scene {
             this.detectMapObjects();
         });
 
-        // 1. Setup World/Map - Scale to fit screen (show full width)
-        const mapKey = this.sceneConfig.asset;
-        const map = this.add.image(0, 0, mapKey).setOrigin(0, 0);
+        // 1. Dynamic Map Generation
+        this.createDynamicMap();
 
-        // Scale map to fit the viewport (prioritize showing full width)
-        const screenWidth = this.cameras.main.width;
-        const screenHeight = this.cameras.main.height;
-        const scaleX = screenWidth / map.width;
-        const scaleY = screenHeight / map.height;
-        // Use Math.max to fill the screen completely (no black bars)
-        // All scene maps now have matching dimensions after regeneration
-        const scale = Math.max(scaleX, scaleY);
+        // 2. Process Player Texture (Chroma Key) -> moved to separate method if needed, but keeping flow
+        // The dynamic map method sets up buildingBounds and buildingY
 
-        map.setScale(scale);
-
-        // Calculate scaled dimensions
-        const scaledMapW = map.width * scale;
-        const scaledMapH = map.height * scale;
-
-        // Center the map on screen
-        const offsetX = (screenWidth - scaledMapW) / 2;
-        const offsetY = (screenHeight - scaledMapH) / 2;
-        map.setPosition(offsetX, offsetY);
-
-        // Native Camera Bounds (Standard Phaser Implementation)
-        // Wraps the camera to the exact dimensions of the scaled map image.
-        this.cameras.main.setBounds(offsetX, offsetY, scaledMapW, scaledMapH);
-
-        // Building bounds - Use Python-derived room positioning
-        // These are source image pixel values from grid_config.json
-        const SOURCE_CANVAS_WIDTH = 2784;  // grid_config.json -> canvas.width
-        const SOURCE_ROOM_X = 418;         // grid_config.json -> room.xPosition
-        const SOURCE_ROOM_W = 1948;        // grid_config.json -> room.scaledWidth
-        const GRID_PADDING_RATIO = 0.12;   // grid_config.json -> grid.positionPaddingRatio
-
-        // Calculate inner walkable area (grid area with padding applied)
-        // This matches where assets are placed in the Python script
-        const innerRoomX = SOURCE_ROOM_X + (SOURCE_ROOM_W * GRID_PADDING_RATIO);
-        const innerRoomW = SOURCE_ROOM_W * (1.0 - (GRID_PADDING_RATIO * 2));
-
-        // ⚠️ LOCKED VALUE - DO NOT CHANGE
-        // Wall line horizontal offset, calibrated to match room visuals
-        const WALL_OFFSET_PX = -50;  // Negative = shift left
-
-        // Scale source coordinates to current map scale
-        const buildingX = offsetX + ((innerRoomX + WALL_OFFSET_PX) / SOURCE_CANVAS_WIDTH) * scaledMapW;
-        const buildingWidth = (innerRoomW / SOURCE_CANVAS_WIDTH) * scaledMapW;
-
-        // Store bounds for clamping later
-        this.buildingBounds = { minX: buildingX, maxX: buildingX + buildingWidth };
-
-        // Vertical bounds based on scene-specific room positions
-        const isSurface = (this.sceneId === 1);
-        const sceneFloorConfig = isSurface
-            ? ECONOMY.FLOOR.sceneConfig.surface
-            : ECONOMY.FLOOR.sceneConfig.underground;
-        const floorStartY = sceneFloorConfig.firstRoomY;
-        this.buildingY = offsetY + (floorStartY * scale);
-
-        // Dynamic Height Calculation: Floors * Height + Margin
-        const numFloors = this.sceneConfig.endFloor - this.sceneConfig.startFloor + 1;
-        this.buildingHeight = (numFloors * ECONOMY.FLOOR.height * scale) + (500 * scale); // Adequate buffer
-
-        this.physics.world.setBounds(buildingX, this.buildingY, buildingWidth, this.buildingHeight);
-
-
-
-        // 2. Process Player Texture (Chroma Key)
-        this.createPlayerTexture();
+        // Dynamic limits: use walkBounds for player X clamping (inner room area)
+        this.physics.world.setBounds(
+            this.walkBounds.minX,
+            this.buildingBounds.minY - 500, // Buffer above
+            this.walkBounds.maxX - this.walkBounds.minX,
+            this.buildingHeight + 1000
+        );
 
         // LAUNCH THE UI SCENE
         this.scene.launch(CONSTANTS.SCENES.UI);
         this.scene.bringToTop(CONSTANTS.SCENES.UI); // Ensure UI stays on top after restart
 
-        // 3. Create Player - Position in center of screen
+        // 3. Create Player - Process texture first, then position in center of screen
+        this.createPlayerTexture();
+
         const startX = screenWidth / 2;
-        const startY = this.buildingY + (150 * scale);  // Start near top of building area
+        const startY = this.buildingY + (150 * this.mapScale);  // Start near top of building area
 
         this.player = this.physics.add.sprite(startX, startY, 'player_processed');
         this.player.setOrigin(0.5, 1); // Align feet to the floor line
-        this.player.setScale(CONFIG.characterScale * scale);  // Scale player with map
+        this.player.setScale(CONFIG.characterScale * this.mapScale);  // Scale player with map
 
         // DEBUG: Log Player Creation
         console.log(`[GameScene] Player Created at (${startX}, ${startY})`);
@@ -171,10 +123,6 @@ export class GameScene extends Phaser.Scene {
         // Arcade Physics doesn't allow per-axis world bounds easily. 
         // Simplest: Disable world bounds, and clamp X manually in update.
         this.player.setCollideWorldBounds(false);
-
-        // Store scale for other calculations
-        this.mapScale = scale;
-        this.mapOffset = { x: offsetX, y: offsetY };
 
         // DevMode Debug Lines - Draw immediately if enabled
         if (CONFIG.devMode) {
@@ -201,12 +149,6 @@ export class GameScene extends Phaser.Scene {
         if (this.transitionData && this.transitionData.type === 'SLIDE') {
             console.log('[GameScene] Handling Transition:', this.transitionData);
             const dir = this.transitionData.direction; // 'UP' or 'DOWN'
-            // ... (Logic matching implementation plan)
-
-            // Re-evaluating UI Scene Logic:
-            // Down Button -> Going Deeper.
-            // Old Scene (Snapshot) moves UP. (Texture Y: 0 -> -Height).
-            // This looks like we are panning DOWN. (We are moving downwards, so world moves Up).
             // New Scene (Game) should be BELOW the Old Scene.
             // So visually it sits at Y=+Height initially?
             // VISUAL: Old Scene is at Y=0. New Scene is at Y=H.
@@ -473,8 +415,8 @@ export class GameScene extends Phaser.Scene {
                 const halfWidth = (this.player.width * this.player.scaleX) / 2;
                 this.rtsTargetX = Phaser.Math.Clamp(
                     worldPoint.x,
-                    this.buildingBounds.minX + halfWidth,
-                    this.buildingBounds.maxX - halfWidth
+                    this.walkBounds.minX + halfWidth,
+                    this.walkBounds.maxX - halfWidth
                 );
 
                 console.log(`Auto-Pilot: Walking to elevator to reach Global Floor ${clickedFloor}`);
@@ -488,8 +430,8 @@ export class GameScene extends Phaser.Scene {
                 const halfWidth = (this.player.width * this.player.scaleX) / 2;
                 const clampedX = Phaser.Math.Clamp(
                     worldPoint.x,
-                    this.buildingBounds.minX + halfWidth,
-                    this.buildingBounds.maxX - halfWidth
+                    this.walkBounds.minX + halfWidth,
+                    this.walkBounds.maxX - halfWidth
                 );
 
                 this.targetPosition = new Phaser.Math.Vector2(clampedX, this.getFloorY(clickedFloor));
@@ -647,6 +589,14 @@ export class GameScene extends Phaser.Scene {
         this.events.emit('STOP_BUILDING'); // Notify UI
     }
 
+    // Helper: Get Y position for floor line
+    getFloorY(floor) {
+        if (this.floorYCache && this.floorYCache[floor]) {
+            return this.floorYCache[floor];
+        }
+        // Fallback (for initial load or errors)
+        return 0;
+    }
     // Helper: Convert World X/Y to Grid Slot
     getFloorSlot(x, y) {
         // Find Floor
@@ -756,7 +706,7 @@ export class GameScene extends Phaser.Scene {
             this.elevatorGlow.clear();
             this.elevatorGlow.fillStyle(0x00ff00, 0.3);
             const halfWidth = (this.player.width * this.player.scaleX) / 2;
-            const rightWallX = this.buildingBounds.maxX - halfWidth;
+            const rightWallX = this.walkBounds.maxX - halfWidth;
             // Rectangle approx size of elevator door/area (100x150)
             this.elevatorGlow.fillRect(rightWallX - 50, floorY - 150, 100, 150);
         } else {
@@ -770,7 +720,7 @@ export class GameScene extends Phaser.Scene {
         // State: Moving to elevator (walking to right wall)
         if (this.playerState === 'MOVING_TO_ELEVATOR') {
             const halfWidth = (this.player.width * this.player.scaleX) / 2;
-            const elevatorX = this.buildingBounds.maxX - halfWidth;
+            const elevatorX = this.walkBounds.maxX - halfWidth;
             const dist = elevatorX - this.player.x;
 
             if (Math.abs(dist) > 4) {
@@ -943,7 +893,7 @@ export class GameScene extends Phaser.Scene {
 
                     // Position player at elevator (right side of building)
                     const halfWidth = (this.player.width * this.player.scaleX) / 2;
-                    const elevatorX = this.buildingBounds.maxX - halfWidth;
+                    const elevatorX = this.walkBounds.maxX - halfWidth;
 
                     this.player.x = elevatorX;
                     this.player.y = newY;
@@ -1016,9 +966,20 @@ export class GameScene extends Phaser.Scene {
         const centerX = this.buildingBounds.minX + (buildingWidth / 2);
 
         console.log(`[Elevator] Playing video at floor ${floorIndex}`);
-        const video = this.add.video(centerX + 20, floorY + 115, 'elevator_video');
 
-        video.setScale(this.mapScale * 1.010);
+        // Position video so cropped strip overlays elevator door in room_entrance.png.
+        // Derived proportionally from working main branch values:
+        //   Main: centerX+20, floorY+115, scale=mapScale*1.010
+        //   Crop center at 28.87% right of room center (78.9% of room width)
+        //   With videoScale=0.56*mapScale, crop offset = 528*0.56 = 295.7 source px
+        //   doorOffsetX = 295.6 - 295.7 ≈ 0 (crop center lands at 78.9% of room)
+        const doorOffsetX = -1;
+        const doorOffsetY = 165.15 * this.mapScale;
+        const videoScale = 0.538 * this.mapScale;
+
+        const video = this.add.video(centerX + doorOffsetX, floorY + doorOffsetY, 'elevator_video');
+
+        video.setScale(videoScale);
         video.setOrigin(0.5, 1);
         video.setAlpha(0);
 
@@ -1133,43 +1094,16 @@ export class GameScene extends Phaser.Scene {
         });
     }
 
-    getFloorY(globalFloorIndex) {
-        // globalFloorIndex is 1-based (1 to 50)
-        // Convert to 0-based relative to Scene start
-
-        const startFloor = this.sceneConfig.startFloor;
-        const endFloor = this.sceneConfig.endFloor;
-
-        // Check if floor is inside this scene
-        if (globalFloorIndex < startFloor || globalFloorIndex > endFloor) {
-            return -1000; // Off-screen
-        }
-
-        const localIndex = globalFloorIndex - startFloor;
-
-        // Use Python-derived positioning constants from config
-        const isSurface = (this.sceneId === 1);
-        const sceneFloorConfig = isSurface
-            ? ECONOMY.FLOOR.sceneConfig.surface
-            : ECONOMY.FLOOR.sceneConfig.underground;
-
-        const firstRoomY = sceneFloorConfig.firstRoomY;      // Where first room starts (Y)
-        const floorLineOffset = sceneFloorConfig.floorLineOffset; // Floor line within room
-        const floorHeight = ECONOMY.FLOOR.height;            // Effective floor spacing (519)
-
-        // Calculate floor line Y in source image pixels:
-        // floor_line_Y = firstRoomY + floorLineOffset + (localIndex * floorHeight)
-        const floorLineSourceY = firstRoomY + floorLineOffset + (localIndex * floorHeight);
-
-        // Convert to world coordinates (scaled and offset)
-        return this.mapOffset.y + (floorLineSourceY * this.mapScale);
-    }
+    // OLD getFloorY() using Python composite constants was REMOVED.
+    // The cache-based getFloorY() at the top of the class (using floorYCache
+    // populated by createDynamicMap()) is now the sole definition.
 
     // Helper to get grounded player Y (Floor Y + Visual Offset)
     getPlayerGroundedY(floorIndex) {
         const floorY = this.getFloorY(floorIndex);
-        // Visual Offset: Move character DOWN to avoid floating.
-        const visualOffset = 80 * this.mapScale;
+        // Offset in room source pixels to place feet at visual floor
+        // (Converted from old composite value: 80 * 1024/2784 ≈ 29)
+        const visualOffset = 29 * this.mapScale;
         return floorY + visualOffset;
     }
 
@@ -1188,7 +1122,7 @@ export class GameScene extends Phaser.Scene {
     canUseElevator() {
         // Elevator is at the right wall
         const halfWidth = (this.player.width * this.player.scaleX) / 2;
-        const rightWallX = this.buildingBounds.maxX - halfWidth;
+        const rightWallX = this.walkBounds.maxX - halfWidth;
         // Increase threshold to 20 pixels for more forgiving interaction
         return Math.abs(this.player.x - rightWallX) < 20;
     }
@@ -1299,13 +1233,10 @@ export class GameScene extends Phaser.Scene {
         // Check if already processed
         if (textureManager.exists('player_processed')) {
             // Remove it to ensure we regenerate a fresh texture for the new scene/context
-            // This prevents "disappearing" issues on scene re-entry
             textureManager.remove('player_processed');
         }
 
         const sourceImage = textureManager.get('player').getSourceImage();
-
-        // Handle if image not loaded perfectly or already processed
         if (!sourceImage) return;
 
         const canvas = document.createElement('canvas');
@@ -1316,22 +1247,20 @@ export class GameScene extends Phaser.Scene {
 
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const data = imageData.data;
-        const threshold = 200; // Match game.js config
 
+        // Conservative: only remove near-pure-white remnants from BG removal
+        // Preserves skin tones, light clothing, and other character details
         for (let i = 0; i < data.length; i += 4) {
             const r = data[i];
             const g = data[i + 1];
             const b = data[i + 2];
 
-            // Simple white removal
-            if (r > threshold && g > threshold && b > threshold) {
+            if (r > 250 && g > 250 && b > 250) {
                 data[i + 3] = 0;
             }
         }
 
         ctx.putImageData(imageData, 0, 0);
-
-        // Add to texture manager
         textureManager.addCanvas('player_processed', canvas);
     }
 
@@ -1399,18 +1328,53 @@ export class GameScene extends Phaser.Scene {
         const floorY = this.getFloorY(floor);
 
         // Grid constants from config.js (synchronized with grid_config.json)
+        // Defaults match Python script: padding=0.12, slots=8, spacing=0.77
         const slots = ECONOMY.FLOOR.slots || 8;
+        const paddingRatio = ECONOMY.FLOOR.paddingRatio || 0.12;
         const slotSpacingFactor = ECONOMY.FLOOR.slotSpacingFactor || 0.77;
 
-        // buildingBounds already accounts for GRID_PADDING_RATIO
-        const gridStartX = this.buildingBounds.minX;
-        const availableWidth = this.buildingBounds.maxX - this.buildingBounds.minX;
+        // Calculate Room Dimensions in Pixels (as drawn on screen)
+        // buildingBounds.minX/maxX represent the drawn room edges
+        const roomMinX = this.buildingBounds.minX;
+        const roomMaxX = this.buildingBounds.maxX;
+        const roomWidthPx = roomMaxX - roomMinX;
+
+        // 1. Calculate Grid Start (Room Left + Padding)
+        const gridStartX = roomMinX + (roomWidthPx * paddingRatio);
+
+        // 2. Calculate Available Width for Slots
+        const availableWidth = roomWidthPx * (1.0 - (paddingRatio * 2));
+
+        // 3. Pixel width of a single slot
         const slotPx = availableWidth / slots;
+
+        // 4. Spacing between slots (if tighter grid is desired)
         const spacingSlotPx = slotPx * slotSpacingFactor;
 
-        // Calculate center of the machine
-        // MATCH PYTHON: Center_X = grid_start_x + (slot * spacing_slot_px) + (slot_px * width) / 2 + x_offset_px
-        let assetCenterX = gridStartX + (slot * spacingSlotPx) + ((width * slotPx) / 2);
+        // 5. Calculate Target Width for this Object (e.g. 2 slots wide)
+        // In Python: base_target_w = slot_px * slot_width_slots
+        const objectTargetWidth = slotPx * width;
+
+        // 6. Calculate Draw Position (Center X)
+        // Python: draw_x = grid_start_x + (slot * spacing_slot_px) - slot_center_offset
+        // slot_center_offset = (target_w - base_target_w) / 2 ... wait, Python centers differently.
+        // Let's replicate Python's "draw_x" logic but return Center X for Phaser.
+
+        // Phaser images are centered by default (origin 0.5, 0.5) or we set origin.
+        // If we assume origin (0.5), we want the center point.
+        // Python draws top-left: draw_x.
+        // CenterX = draw_x + (target_w / 2)
+
+        // Re-deriving Python logic for Center X:
+        // draw_x = grid_start + (slot * spacing) - offset
+        // offset = 0 (if scale=1) -> simple case
+        // If we want the object to be visualized in the center of its assigned slots:
+        // The "visual" center should be:
+        // grid_start + (slot * spacing) + (objectTargetWidth / 2)
+
+        // This seems correct for Phaser's coordinate system.
+        // We use objectTargetWidth (width * slotPx) to find the center of the span.
+        let assetCenterX = gridStartX + (slot * spacingSlotPx) + (objectTargetWidth / 2);
 
         // Apply asset-specific X and Y offsets from config.js
         const state = this.registry.get('gameState');
@@ -1418,12 +1382,18 @@ export class GameScene extends Phaser.Scene {
         const offsets = ECONOMY.FLOOR.assetOffsets;
         let activeOffset = offsets.default;
 
+        // Check if we have a specific offset for this room type
+        // If roomData is missing (preview?), fallback to text/default
+        // We create a temp alias map if needed, or rely on roomData.type
         if (roomData && offsets[roomData.type]) {
             activeOffset = offsets[roomData.type];
         }
 
+        // Apply Offsets (Scaled)
         assetCenterX += activeOffset.x * this.mapScale;
-        return { x: assetCenterX, y: floorY + (activeOffset.y * this.mapScale) };
+        const assetCenterY = floorY + (activeOffset.y * this.mapScale);
+
+        return { x: assetCenterX, y: assetCenterY };
     }
 
     /**
@@ -1436,11 +1406,11 @@ export class GameScene extends Phaser.Scene {
         const assetScale = GRID_CONFIG.assetScaleFactor;
         const slotSpacing = GRID_CONFIG.slotSpacingFactor;
 
-        // Use pre-calculated building bounds from create()
-        // NOTE: buildingBounds in create() ALREADY accounts for positionPaddingRatio!
-        // It represents the "innerRoom" / "grid area".
-        const gridStartX = this.buildingBounds.minX;
-        const availableWidth = this.buildingBounds.maxX - this.buildingBounds.minX;
+        // buildingBounds represents the full room edges (not padded).
+        // Apply positionPaddingRatio to get the inner grid area, matching getSlotPosition().
+        const roomWidth = this.buildingBounds.maxX - this.buildingBounds.minX;
+        const gridStartX = this.buildingBounds.minX + (roomWidth * posPaddingRatio);
+        const availableWidth = roomWidth * (1.0 - (posPaddingRatio * 2));
 
         // 1. Grid Metrics
         // availableWidth is already the inner width
@@ -1454,11 +1424,10 @@ export class GameScene extends Phaser.Scene {
         let individualScale = 1.0;
         if (assetName === 'scrap_machine') individualScale = GRID_CONFIG.assetScales.scrap_machine || 1.0;
 
-        // User requested "hard math" to match visual size of hydroponic_plants_v2.png (1024x1024)
-        // Reference is Square (1:1). Animation is Tall (921x1080).
-        // To match Height, we scale by (Width / Height) of the animation -> 921 / 1080 = 0.852777...
-        // This ensures the Animation Height equals the Reference Height at the same slot width.
-        const manualSizeAdjustment = 921 / 1080;
+        // For garden animation (921x1080), adjust to match 1024x1024 reference height.
+        // Scale by (Width / Height) so the animation height equals the reference height.
+        // For square assets (1024x1024), no adjustment needed.
+        const manualSizeAdjustment = (assetName === 'garden') ? (921 / 1080) : 1.0;
 
         const finalScaleFactor = assetScale * individualScale * manualSizeAdjustment;
         const targetW = baseTargetW * finalScaleFactor;
@@ -1479,10 +1448,8 @@ export class GameScene extends Phaser.Scene {
         const floorLineY = this.getFloorY(floor);
 
         // Determine Y and X Offsets based on asset type (from GRID_CONFIG)
-        let yOffsetPx = 0;
-        let xOffsetPx = 0;
-        if (assetName === 'garden') yOffsetPx = GRID_CONFIG.assetYOffsets.garden || 0;
-        if (assetName === 'scrap_machine') xOffsetPx = GRID_CONFIG.assetXOffsets.scrap_machine || 0;
+        const yOffsetPx = (GRID_CONFIG.assetYOffsets && GRID_CONFIG.assetYOffsets[assetName]) || 0;
+        const xOffsetPx = (GRID_CONFIG.assetXOffsets && GRID_CONFIG.assetXOffsets[assetName]) || 0;
 
         // Calculate scaled offsets using mapScale
         const preciseScaledYOffset = yOffsetPx * this.mapScale;
@@ -1496,10 +1463,9 @@ export class GameScene extends Phaser.Scene {
         // Center Y = (FloorLineY + ScaledOffset) - (TargetH / 2)
         const centerY = floorLineY + preciseScaledYOffset - (targetH / 2);
 
-        // MANUAL CALIBRATION V3.2
-        // Corrected Floor Alignment (+1 Floor Fix)
-        const manualCalibrationX = 18;
-        const manualCalibrationY = 5;
+        // Manual calibration (reset for dynamic map system)
+        const manualCalibrationX = 0;
+        const manualCalibrationY = 0;
 
         return {
             x: centerX + manualCalibrationX,
@@ -1512,11 +1478,15 @@ export class GameScene extends Phaser.Scene {
         const key = `${floor}_${slot}`;
         const roomDef = ECONOMY.ROOM_TYPES[roomType];
 
-        // Get position
+        // Get position using padded grid (matching getSlotPosition logic)
         const floorY = this.getFloorY(floor);
-        const slotWidth = (this.buildingBounds.maxX - this.buildingBounds.minX) / 8;
-        const roomX = this.buildingBounds.minX + (slotWidth * slot) + (slotWidth / 2);
-        const roomY = floorY - 100; // Above floor line
+        const roomWidthPx = this.buildingBounds.maxX - this.buildingBounds.minX;
+        const paddingRatio = ECONOMY.FLOOR.paddingRatio || 0.12;
+        const paddedStartX = this.buildingBounds.minX + (roomWidthPx * paddingRatio);
+        const paddedWidth = roomWidthPx * (1.0 - (paddingRatio * 2));
+        const slotWidth = paddedWidth / 8;
+        const roomX = paddedStartX + (slotWidth * slot) + (slotWidth / 2);
+        const roomY = floorY - (100 * this.mapScale); // Above floor line, scaled
 
         // Determine sprite key based on room type
         let spriteKey = null;
@@ -1567,8 +1537,17 @@ export class GameScene extends Phaser.Scene {
         }
 
         if (spriteKey && this.textures.exists(spriteKey)) {
-            const sprite = this.add.image(roomX, roomY, spriteKey);
-            sprite.setScale(this.mapScale * 0.5); // Adjust scale as needed
+            const sprite = this.add.image(0, 0, spriteKey);
+
+            // Use grid transform for consistent sizing (all assets are 1024x1024)
+            const slotsWide = (roomType === 'salvage_station') ? 4 : 2.4;
+            const assetLabel = (roomType === 'salvage_station') ? 'scrap_machine' : roomType;
+            const transform = this.calculateGridTransform(
+                floor, slot, slotsWide, assetLabel, 1024, 1024
+            );
+            sprite.setPosition(transform.x, transform.y);
+            sprite.setScale(transform.scale);
+
             this.roomVisuals[key] = sprite;
             return sprite;
         }
@@ -1643,5 +1622,174 @@ export class GameScene extends Phaser.Scene {
         });
 
         console.log(`[MapDetection] Complete! Detected ${detectedCount} objects`);
+    }
+
+    processTextureWithChromaKey(originalKey, newKey) {
+        const textureManager = this.textures;
+
+        // Return if new texture already exists
+        if (textureManager.exists(newKey)) return;
+
+        const sourceImage = textureManager.get(originalKey).getSourceImage();
+        if (!sourceImage) {
+            console.warn(`[ChromaKey] Source texture '${originalKey}' not found.`);
+            return;
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = sourceImage.width;
+        canvas.height = sourceImage.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(sourceImage, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imageData.data;
+
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+
+            // Use brightness + saturation to distinguish white BG from white art elements
+            const brightness = (r + g + b) / 3;
+            const saturation = Math.max(r, g, b) - Math.min(r, g, b);
+
+            // Hard remove: near-pure-white with very low color
+            if (brightness > 245 && saturation < 15) {
+                data[i + 3] = 0;
+            }
+            // Soft edge falloff: catches anti-aliased fringe pixels
+            else if (brightness > 225 && saturation < 20) {
+                const fade = (brightness - 225) / 20; // 0..1
+                data[i + 3] = Math.round(data[i + 3] * (1 - fade));
+            }
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+        textureManager.addCanvas(newKey, canvas);
+        console.log(`[ChromaKey] Processed '${originalKey}' -> '${newKey}'`);
+    }
+
+    createDynamicMap() {
+        const screenWidth = this.cameras.main.width;
+        const screenHeight = this.cameras.main.height;
+
+        // 0. Pre-process Textures (Chroma Key)
+        this.processTextureWithChromaKey('room_base', 'room_base_processed');
+        this.processTextureWithChromaKey('room_entrance', 'room_entrance_processed');
+
+        // 1. Calculate Dynamic Dimensions
+        // Target: Rooms should take up X% of the screen width
+        const targetRoomWidth = screenWidth * CONFIG.LAYOUT.roomWidthRatio; // e.g. 70%
+
+        // Load Source Dimensions from Processed Texture
+        // Fallback to original if processing failed
+        const baseKey = this.textures.exists('room_base_processed') ? 'room_base_processed' : 'room_base';
+        const roomSource = this.textures.get(baseKey).getSourceImage();
+        const roomSourceW = roomSource.width;
+        const roomSourceH = roomSource.height;
+
+        // Calculate Scale to fit target width
+        const scale = targetRoomWidth / roomSourceW;
+
+        // Store scale for other systems
+        this.mapScale = scale;
+        this.mapOffset = { x: 0, y: 0 };
+        const startX = (screenWidth - targetRoomWidth) / 2;
+
+        // 2. Generate Background
+        const isSurface = (this.sceneId === 1);
+        const bgKey = isSurface ? 'bg_surface' : 'bg_underground';
+
+        // Determine total height needed
+        const numFloors = this.sceneConfig.endFloor - this.sceneConfig.startFloor + 1;
+
+        // FIX: Revert to using actual scaled image height matches Python logic
+        // The negative padding in config (-160) now handles the overlap.
+        const roomHeight = roomSourceH * scale;
+
+        const floorSpacing = (CONFIG.LAYOUT.verticalPadding || 0) * scale;
+        const effectiveFloorHeight = roomHeight + floorSpacing;
+
+        this.buildingHeight = numFloors * effectiveFloorHeight;
+
+        // Make BG tall enough
+        const totalWorldHeight = Math.max(screenHeight, this.buildingHeight + 1000);
+        const bg = this.add.tileSprite(screenWidth / 2, totalWorldHeight / 2, screenWidth, totalWorldHeight, bgKey);
+
+        if (isSurface) {
+            const bgImage = this.add.image(screenWidth / 2, screenHeight / 2, 'bg_surface');
+            bgImage.setDisplaySize(screenWidth, screenHeight); // Stretch to fit
+            bgImage.setScrollFactor(0);
+            if (bg) bg.destroy(); // Remove tileSprite if using Image for surface
+        } else {
+            bg.setScrollFactor(1);
+        }
+
+        // 3. Place Rooms
+        this.roomVisuals = {};
+
+        // Define building bounds for Logic (full room edges)
+        this.buildingBounds = {
+            minX: startX,
+            maxX: startX + targetRoomWidth,
+            minY: 0
+        };
+
+        // Walk bounds: inner walkable area matching old composite system
+        // Old system: ~9.5% to ~85.5% of room width (padding + wall offset)
+        const WALK_MIN_RATIO = 0.095;
+        const WALK_MAX_RATIO = 0.855;
+        this.walkBounds = {
+            minX: startX + (targetRoomWidth * WALK_MIN_RATIO),
+            maxX: startX + (targetRoomWidth * WALK_MAX_RATIO)
+        };
+
+        const startFloor = this.sceneConfig.startFloor;
+        // Starting Y position for the first floor
+        let currentY = 100 * scale;
+        if (isSurface) {
+            currentY = 300 * scale; // More sky
+            this.buildingBounds.minY = currentY;
+        }
+
+        for (let i = 0; i < numFloors; i++) {
+            const floorNum = startFloor + i;
+            const isEntrance = (isSurface && floorNum === this.sceneConfig.endFloor);
+
+            // Use Processed Textures
+            let tex = isEntrance ? 'room_entrance_processed' : 'room_base_processed';
+            // Fallback if not processed
+            if (!this.textures.exists(tex)) {
+                tex = isEntrance ? 'room_entrance' : 'room_base';
+            }
+
+            // Draw Room
+            const roomSprite = this.add.image(startX, currentY, tex);
+            roomSprite.setOrigin(0, 0);
+            roomSprite.setScale(scale);
+
+            // Register visual
+            this.roomVisuals[`${floorNum}_base`] = roomSprite;
+
+            // Store Y coordinate for "Floor Line"
+            const floorLineY = currentY + (roomSourceH * CONFIG.LAYOUT.floorLineOffsetRatio * scale);
+
+            if (!this.floorYCache) this.floorYCache = {};
+            this.floorYCache[floorNum] = floorLineY;
+
+            // Next floor
+            currentY += effectiveFloorHeight;
+        }
+
+        // Update Grid Config for Logic usage
+        GRID_CONFIG.roomWidth = targetRoomWidth;
+        GRID_CONFIG.roomHeight = roomHeight;
+        GRID_CONFIG.floorLineOffset = (roomSourceH * CONFIG.LAYOUT.floorLineOffsetRatio * scale);
+
+        // Set buildingY for player placement
+        this.buildingY = this.buildingBounds.minY;
+
+        console.log(`[DynamicMap] Generated. Width: ${targetRoomWidth}px (Scale: ${scale.toFixed(2)}).`);
     }
 }
