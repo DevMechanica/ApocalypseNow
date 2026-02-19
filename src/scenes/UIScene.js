@@ -1324,7 +1324,7 @@ export class UIScene extends Phaser.Scene {
 
         // Title
         // Title
-        const titleText = this.add.text(Math.round(width / 2), 41, 'Machine upgrades', {
+        const titleText = this.add.text(Math.round(width / 2), 55, 'Machine upgrades', {
             fontSize: '26px',
             fontFamily: 'Impact, Arial Black',
             color: '#ffffff',
@@ -1372,8 +1372,8 @@ export class UIScene extends Phaser.Scene {
 
         // --- SCROLLABLE CONTENT AREA ---
         this.upgradeWindowW = width * 0.92;
-        this.upgradeContentTopY = 80;
-        const scrollAreaH = drawerH - 90;
+        this.upgradeContentTopY = 95;
+        const scrollAreaH = drawerH - 105;
         this.upgradeScrollAreaH = scrollAreaH;
 
         // Mask (Re-enabled)
@@ -1539,7 +1539,7 @@ export class UIScene extends Phaser.Scene {
         });
 
         const width = this.cameras.main.width;
-        const slotW = 370;
+        const slotW = Math.round(width * 0.75);
         const slotH = 160;
         const gap = 7;
         const startX = width / 2;
@@ -1575,7 +1575,7 @@ export class UIScene extends Phaser.Scene {
                 // --- Machine Icon (left side) ---
                 const iconKey = room.roomDef.sprite;
                 if (iconKey && this.textures.exists(iconKey)) {
-                    const iconX = startX - slotW / 2 + 58;
+                    const iconX = startX - slotW / 2 + Math.round(slotW * 0.16);
                     const iconY = currentY + slotH / 2 - 23;
                     const icon = this.add.image(iconX, iconY, iconKey);
                     // Per-type icon sizing
@@ -1589,7 +1589,7 @@ export class UIScene extends Phaser.Scene {
                 }
 
                 // --- Room Name + Level (Top Section) ---
-                const textX = startX - slotW / 2 + 110;
+                const textX = startX - slotW / 2 + Math.round(slotW * 0.30);
                 const nameY = currentY + slotH / 2 - 30; // Base anchor point (moves block up/down)
                 const maxTextW = slotW - 280;
 
@@ -1641,7 +1641,7 @@ export class UIScene extends Phaser.Scene {
                 const combinedStr = `${desc}   |   ${statInfo}`;
 
                 // Left align with the card (under icon)
-                const descTextX = startX - slotW / 2 + 20;
+                const descTextX = startX - slotW / 2 + Math.round(slotW * 0.054);
 
                 // Description Line
                 const descText = this.add.text(descTextX, nameY + 72.5, desc, {

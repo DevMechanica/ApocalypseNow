@@ -146,46 +146,20 @@ export class GameScene extends Phaser.Scene {
         // this.cameras.main.setBounds(0, 0, screenWidth, screenHeight);
 
         // HANDLE TRANSITION ANIMATION
+        // scrollX/scrollY = top-left corner of camera viewport.
+        // At scroll (0,0) zoom 1.0, view covers (0,0) to (screenWidth, screenHeight) — full background.
         if (this.transitionData && this.transitionData.type === 'SLIDE') {
             console.log('[GameScene] Handling Transition:', this.transitionData);
             const dir = this.transitionData.direction; // 'UP' or 'DOWN'
-            // New Scene (Game) should be BELOW the Old Scene.
-            // So visually it sits at Y=+Height initially?
-            // VISUAL: Old Scene is at Y=0. New Scene is at Y=H.
-            // ANIMATION: Old Scene Y -> -H. New Scene Y -> 0.
-            // Combine: Viewport moves form 0 to H? No.
-            // Viewport moves DOWN over the content.
-
-            // GameScene Camera Logic:
-            // We want the GameScene MAP to appear at Screen Y = +Height initially.
-            // MapWorldY is constant (0). 
-            // ScreenY = MapWorldY - ScrollY.
-            // We want ScreenY = +Height.
-            // 0 - ScrollY = H => ScrollY = -H. 
-            // Wait.
-            // If ScrollY is -H, we are looking at Y=-H. The map (at 0) is H pixels BELOW us.
-            // So Map Screen Y is +H. Correct.
 
             let startScrollY = 0;
             if (dir === 'DOWN') {
-                // Going Deeper.
-                // Snapshot Moves UP (Y: 0 -> -H).
-                // We want New Scene to move UP (appear from bottom).
-                // Initial: Map at +H (Bottom).
-                // ScrollY needs to be -H.
                 startScrollY = -screenHeight;
             } else {
-                // Going UP (Surface).
-                // Snapshot Moves DOWN (Y: 0 -> +H).
-                // We want New Scene to move DOWN (appear from top).
-                // Initial: Map at -H (Top).
-                // We want Map Screen Y = -H.
-                // 0 - ScrollY = -H => ScrollY = +H.
                 startScrollY = screenHeight;
             }
 
             console.log(`[GameScene] Setting initial scrollY to ${startScrollY}`);
-            // Force scrollY (bypass bounds if any remained)
             this.cameras.main.scrollY = startScrollY;
 
             this.tweens.add({
@@ -195,8 +169,6 @@ export class GameScene extends Phaser.Scene {
                 ease: 'Cubic.easeInOut',
                 onComplete: () => {
                     console.log('[GameScene] Camera tween complete');
-                    // Restore bounds after transition?
-                    // this.cameras.main.setBounds(0, 0, screenWidth, screenHeight);
                 }
             });
         } else {
@@ -229,9 +201,12 @@ export class GameScene extends Phaser.Scene {
 
         // --- Mouse Wheel Zoom (PC) ---
         this.input.on('wheel', (pointer, gameObjects, deltaX, deltaY, deltaZ) => {
+            const cam = this.cameras.main;
             const sensitivity = 0.001;
-            const newZoom = Phaser.Math.Clamp(this.cameras.main.zoom - (deltaY * sensitivity), 1.0, 3.0);
-            this.cameras.main.setZoom(newZoom);
+            const newZoom = Phaser.Math.Clamp(cam.zoom - (deltaY * sensitivity), 1.0, 3.0);
+            // Phaser zooms around midPoint (scrollX+w/2, scrollY+h/2) automatically
+            cam.setZoom(newZoom);
+            this.clampCameraToMap();
         });
 
         // --- Touch Handling ---
@@ -248,8 +223,9 @@ export class GameScene extends Phaser.Scene {
             }
 
             // 2. One finger = Ready to Drag or Click
+            // Only allow drag-to-pan when zoomed in; at default zoom rooms stay locked
             if (!this.registry.get('uiBlocked')) {
-                this.isDragging = true;
+                this.isDragging = this.cameras.main.zoom > 1.005;
                 this.dragStart.x = pointer.x;
                 this.dragStart.y = pointer.y;
                 this.camStart.x = this.cameras.main.scrollX;
@@ -270,18 +246,28 @@ export class GameScene extends Phaser.Scene {
                 const diff = (dist - this.pinchDist) * sensitivity;
 
                 // Apply Zoom (Clamp 1.0 to 3.0)
+                // Phaser zooms around midPoint automatically
                 const newZoom = Phaser.Math.Clamp(this.cameras.main.zoom + diff, 1.0, 3.0);
                 this.cameras.main.setZoom(newZoom);
                 this.pinchDist = dist;
+                this.clampCameraToMap();
                 return;
             }
 
-            // B. Drag-to-Pan (One Finger)
-            if (this.isDragging) {
-                const diffX = (this.dragStart.x - pointer.x) / this.cameras.main.zoom;
-                const diffY = (this.dragStart.y - pointer.y) / this.cameras.main.zoom;
+            // B. Drag-to-Pan (One Finger) - only when zoomed in
+            if (this.isDragging && this.cameras.main.zoom > 1.005) {
+                const cam = this.cameras.main;
+                const diffX = (this.dragStart.x - pointer.x) / cam.zoom;
+                const diffY = (this.dragStart.y - pointer.y) / cam.zoom;
 
-                this.cameras.main.setScroll(this.camStart.x + diffX, this.camStart.y + diffY);
+                // Phaser worldView = scroll + (dim/2)*(1-1/zoom), so bounds are symmetric
+                const limitX = (cam.width / 2) * (1 - 1 / cam.zoom);
+                const limitY = (cam.height / 2) * (1 - 1 / cam.zoom);
+
+                const newScrollX = Phaser.Math.Clamp(this.camStart.x + diffX, -limitX, limitX);
+                const newScrollY = Phaser.Math.Clamp(this.camStart.y + diffY, -limitY, limitY);
+
+                cam.setScroll(newScrollX, newScrollY);
             }
         });
 
@@ -296,6 +282,17 @@ export class GameScene extends Phaser.Scene {
                 this.handleTap(pointer);
             }
         });
+    }
+
+    clampCameraToMap() {
+        const cam = this.cameras.main;
+        // Phaser worldView.left = scrollX + (w/2)*(1 - 1/zoom)
+        // To keep view within map (0,0)→(w,h), scroll must be in [-limit, +limit]
+        const limitX = (cam.width / 2) * (1 - 1 / cam.zoom);
+        const limitY = (cam.height / 2) * (1 - 1 / cam.zoom);
+
+        cam.scrollX = Phaser.Math.Clamp(cam.scrollX, -limitX, limitX);
+        cam.scrollY = Phaser.Math.Clamp(cam.scrollY, -limitY, limitY);
     }
 
     handleTap(pointer) {
@@ -1718,9 +1715,10 @@ export class GameScene extends Phaser.Scene {
         const bg = this.add.tileSprite(screenWidth / 2, totalWorldHeight / 2, screenWidth, totalWorldHeight, bgKey);
 
         if (isSurface) {
+            // Place background in world space so it scrolls with rooms when zoomed/dragged
             const bgImage = this.add.image(screenWidth / 2, screenHeight / 2, 'bg_surface');
-            bgImage.setDisplaySize(screenWidth, screenHeight); // Stretch to fit
-            bgImage.setScrollFactor(0);
+            bgImage.setDisplaySize(screenWidth, screenHeight);
+            bgImage.setScrollFactor(1);
             if (bg) bg.destroy(); // Remove tileSprite if using Image for surface
         } else {
             bg.setScrollFactor(1);
