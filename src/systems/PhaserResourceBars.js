@@ -53,7 +53,7 @@ export class PhaserResourceBars {
         // Calculate Screen Scale
         const spacing = 5;
         const totalSpacing = spacing * (totalBars - 1);
-        const safeWidth = width * 0.98;
+        const safeWidth = width * 0.90; // 5% padding each side to avoid touching edges
         const availableWidthPerBar = (safeWidth - totalSpacing) / totalBars;
 
         // Global width scale (how much to shrink the *width* to fit screen)
@@ -103,6 +103,8 @@ export class PhaserResourceBars {
         });
     }
 
+
+
     createSingleBar(key, config, x, y, width, height, scale) {
         const container = this.scene.add.container(x, y);
         container.setScale(scale);
@@ -129,7 +131,6 @@ export class PhaserResourceBars {
         container.add(fillGraphics);
 
         // Calculate precise Dimensions
-        // Adjusted from 85 to 65 to move start left (User Request)
         const iconWidth = 45;
         const paddingRight = 15;
         const paddingTop = 10;
@@ -145,9 +146,6 @@ export class PhaserResourceBars {
         // 3. Text
         const textX = 0; // Center text in the container
         const textY = 0;
-
-        // Adjust font size relative to bar height
-        // Taller bars get slightly larger text, smaller get smaller
         const fontSize = Math.floor(height * 0.55); // 55% of height
 
         const text = this.scene.add.text(textX, textY, '0/0', {
@@ -161,11 +159,66 @@ export class PhaserResourceBars {
 
         container.add(text);
 
+        // --- NEW COUNTERS (Caps Only) ---
+        let dayText, waveText;
+
+        if (key === 'caps') {
+            const counterScale = 0.8;
+
+            // Images are 290x600 with huge empty padding. Crop to content only.
+            // day_counter content: Y 210-358 (148px with margin)
+            // wave_counter content: Y 255-345 (90px with margin)
+            const dayCropY = 210;
+            const dayCropH = 148;
+            const waveCropY = 255;
+            const waveCropH = 90;
+
+            // Day Counter - 2px below bar bottom
+            const dayY = (height / 2) + 2;
+            const dayVisH = dayCropH * counterScale;
+            const dayBg = this.scene.add.image(0, dayY - dayCropY * counterScale, 'day_counter')
+                .setOrigin(0.5, 0)
+                .setScale(counterScale)
+                .setCrop(0, dayCropY, 290, dayCropH);
+
+            dayText = this.scene.add.text(0, dayY + dayVisH / 2, 'Day 1', {
+                fontFamily: 'Arial',
+                fontSize: '14px',
+                color: '#ffffff',
+                stroke: '#000000',
+                strokeThickness: 3,
+                fontStyle: 'bold'
+            }).setOrigin(0.5, 0.5);
+
+            container.add([dayBg, dayText]);
+
+            // Wave Counter - 3px below day counter
+            const waveY = dayY + dayVisH + 3;
+            const waveVisH = waveCropH * counterScale;
+            const waveBg = this.scene.add.image(0, waveY - waveCropY * counterScale, 'until_wave_counter')
+                .setOrigin(0.5, 0)
+                .setScale(counterScale)
+                .setCrop(0, waveCropY, 290, waveCropH);
+
+            waveText = this.scene.add.text(0, waveY + waveVisH / 2, '00:00', {
+                fontFamily: 'Arial',
+                fontSize: '14px',
+                color: '#ff4444',
+                stroke: '#000000',
+                strokeThickness: 3,
+                fontStyle: 'bold'
+            }).setOrigin(0.5, 0.5);
+
+            container.add([waveBg, waveText]);
+        }
+
         // Store references
         this.barElements[key] = {
             glowGraphics: glowGraphics,
             fillGraphics: fillGraphics,
             text: text,
+            dayText: dayText, // Undefined for non-caps
+            waveText: waveText,
 
             // Dimensions for updating
             fillStartX: fillStartX,
@@ -204,6 +257,42 @@ export class PhaserResourceBars {
                 percentage = 1;
             }
 
+            // Update Counters (Caps Only)
+            if (key === 'caps' && el.dayText && el.waveText) {
+                // Day Calculation (20 mins = 1200s per day)
+                const secondsPerDay = 1200;
+                const currentDay = Math.floor(state.playTime / secondsPerDay) + 1;
+                el.dayText.setText(`Day ${currentDay}`);
+
+                // Wave Calculation (Simulated for now)
+                // Find nearest threat time
+                // state.lastScout (timestamp in s) + interval
+                const now = state.playTime;
+
+                // Hardcoded intervals from config (should import, but using safe defaults matching config)
+                const scoutInt = 600;
+                const raidInt = 7200;
+
+                // Time until next
+                const nextScout = (state.lastScout + scoutInt) - now;
+                const nextRaid = (state.lastRaid + raidInt) - now;
+
+                // Get minimum positive time
+                const times = [nextScout, nextRaid].filter(t => t > 0);
+                const nextWave = times.length > 0 ? Math.min(...times) : 0;
+
+                // Format MM:SS
+                const mins = Math.floor(nextWave / 60);
+                const secs = Math.floor(nextWave % 60);
+                const timeStr = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+
+                el.waveText.setText(timeStr);
+
+                // Color change if imminent
+                if (nextWave < 60) el.waveText.setColor('#ff0000');
+                else el.waveText.setColor('#ffffff');
+            }
+
             // Only redraw if percentage changed significantly (prevent unnecessary draw calls)
             if (Math.abs(percentage - el.lastPercentage) < 0.001) return;
             el.lastPercentage = percentage;
@@ -217,48 +306,47 @@ export class PhaserResourceBars {
             g.clear();
             glow.clear();
 
+            // Draw dark inset track (always visible, gives depth)
+            const r = el.cornerRadius;
+            const x = el.fillStartX;
+            const y = el.barAreaY;
+            const h = el.barAreaHeight;
+            const fullW = el.barAreaWidth;
+
+            glow.fillStyle(0x000000, 0.45);
+            glow.fillRoundedRect(x, y, fullW, h, r);
+            // Inner border for inset look
+            glow.lineStyle(1, 0x000000, 0.3);
+            glow.strokeRoundedRect(x, y, fullW, h, r);
+
             if (fillW > 0) {
-                // Color Helpers
                 const baseColorObj = Phaser.Display.Color.IntegerToColor(el.baseColor);
                 const baseColor = baseColorObj.color;
+                const darkerColor = baseColorObj.clone().darken(30).color;
+                const darkestColor = baseColorObj.clone().darken(50).color;
 
-                // Lighten/Darken returns explicit object, we need color property for fillStyle? 
-                // Phaser.Display.Color methods modify IN PLACE. So we must clone.
-                const lighterColor = baseColorObj.clone().lighten(15).color;
-                const darkerColor = baseColorObj.clone().darken(15).color;
-
-                const r = el.cornerRadius;
-                const x = el.fillStartX;
-                const y = el.barAreaY;
-                const h = el.barAreaHeight;
-
-                // --- GLOW (Behind) ---
-                const glowPadding = 3;
-                glow.fillStyle(baseColor, 0.3);
-                // Clamp radius for glow if small
-                glow.fillRoundedRect(x - glowPadding, y - glowPadding, fillW + (glowPadding * 2), h + (glowPadding * 2), r);
-
-
-                // --- FILL LAYERS ---
-
-                // 1. Base Fill
-                g.fillStyle(baseColor, 0.9);
+                // 1. Dark base layer (bottom shadow)
+                g.fillStyle(darkestColor, 0.9);
                 g.fillRoundedRect(x, y, fillW, h, r);
 
-                // 2. Top Highlight (Lighter)
-                g.fillStyle(lighterColor, 0.4);
-                // Reduce height for highlight
-                g.fillRoundedRect(x, y, fillW, h * 0.35, r);
+                // 2. Main fill (slightly inset for bevel effect)
+                g.fillStyle(darkerColor, 1.0);
+                g.fillRoundedRect(x, y + 1, fillW, h - 2, r);
 
-                // 3. Bottom Shadow (Darker)
-                g.fillStyle(darkerColor, 0.3);
-                g.fillRoundedRect(x, y + (h * 0.65), fillW, h * 0.35, r);
+                // 3. Lighter top half for metallic gradient
+                g.fillStyle(baseColor, 0.85);
+                g.fillRoundedRect(x, y + 1, fillW, h * 0.5, r);
 
-                // 4. Shine (Glossy Top Edge)
-                g.fillStyle(0xffffff, 0.25);
-                // Inset slightly
-                if (fillW > 4 && h > 4) {
-                    g.fillRoundedRect(x + 2, y + 2, fillW - 4, h * 0.2, r / 2);
+                // 4. Bright highlight strip at top
+                g.fillStyle(0xffffff, 0.15);
+                if (fillW > 4 && h > 6) {
+                    g.fillRoundedRect(x + 2, y + 2, fillW - 4, h * 0.22, r / 2);
+                }
+
+                // 5. Subtle edge highlight on right side of fill
+                if (fillW > 3) {
+                    g.fillStyle(0xffffff, 0.1);
+                    g.fillRect(x + fillW - 2, y + 2, 2, h - 4);
                 }
             }
         });

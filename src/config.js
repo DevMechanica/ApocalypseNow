@@ -8,7 +8,7 @@ export const CONFIG = {
 
     // Character settings
     characterPath: 'characters/Normal_optimized-removebg-preview.png',
-    characterScale: 1.35,
+    characterScale: 0.70,
     characterSpeed: 160,
 
     // Elevator Settings
@@ -21,6 +21,13 @@ export const CONFIG = {
 
     // Display
     aspectRatio: 9 / 16,
+
+    // Dynamic Layout Settings
+    LAYOUT: {
+        roomWidthRatio: 1,     // Rooms take up 70% of screen width (Matches Python)
+        verticalPadding: -78.5,    // Floor overlap in source pixels (scaled at runtime with mapScale)
+        floorLineOffsetRatio: 0.85 // Where the floor line is relative to room top (visual alignment)
+    },
 
     // Debugging
     devMode: false
@@ -363,10 +370,9 @@ export const ECONOMY = {
         // After changes, run: python New_maps/create_bunker_map.py
         height: 519,  // grid_config.json -> floor.effectiveHeight
 
-        padding: {
-            left: 0.15,      // Left Wall (matches Python room_x / canvas_w = 418/2784)
-            right: 0.15      // Right Wall (room is centered, symmetric padding)
-        },
+        // Grid Settings (Matches Python grid_config.json)
+        // Python: POS_PADDING_RATIO = 0.12
+        paddingRatio: 0.12,
 
         // Scene-specific Y positioning
         // *** SYNC WITH grid_config.json -> scenes ***

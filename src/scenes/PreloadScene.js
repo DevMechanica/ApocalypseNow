@@ -42,10 +42,14 @@ export class PreloadScene extends Phaser.Scene {
 
         // Load Assets
         // Load Assets
-        // Map Scenes (1-10)
-        for (let i = 1; i <= 10; i++) {
-            this.load.image(`scene_${i}`, `${CONFIG.mapPath}${i}.webp`);
-        }
+        // Dynamic Map Components
+        this.load.image('room_base', 'assets/map_components/room_base.png');
+        this.load.image('room_entrance', 'assets/map_components/room_entrance.png');
+        this.load.image('bg_surface', 'assets/map_components/bg_surface.png');
+        this.load.image('bg_underground', 'assets/map_components/bg_underground.png');
+
+        // Legacy: Load scene_1 only as a fallback/reference if needed, but we aim to replace it.
+        // for (let i = 1; i <= 10; i++) { ... } -> REMOVED
 
         this.load.image('player', CONFIG.characterPath);
 
@@ -61,6 +65,9 @@ export class PreloadScene extends Phaser.Scene {
         this.load.image('icon_pause', 'ui_icons/icon_pause.png');
         this.load.image('icon_settings', 'ui_icons/icon_settings.png');
         this.load.image('icon_map', 'ui_icons/icon_map.png');
+        this.load.image('icon_map', 'ui_icons/icon_map.png');
+        this.load.image('day_counter', 'ui_icons/day_counter.png');
+        this.load.image('until_wave_counter', 'ui_icons/until_wave_counter.png');
         // this.load.image('icon_build', 'ui_icons/icon_build.png'); // Replaced by btn_build
 
         // New Right-Side Buttons (Anonymous for now)
