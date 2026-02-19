@@ -1301,6 +1301,11 @@ export class UIScene extends Phaser.Scene {
         const width = this.cameras.main.width;
         const height = this.cameras.main.height;
 
+        // Base reference width (Samsung S20 Ultra)
+        const refWidth = 412;
+        // Calculate scale based on width, but cap it for tablet readability
+        const uiScale = Math.min(width / refWidth, 1.1); // Reduced max scale from 1.25 to 1.1
+
         // Drawer dimensions
         const drawerH = height * 0.65;
         this.drawerHeight = drawerH;
@@ -1311,7 +1316,7 @@ export class UIScene extends Phaser.Scene {
         this.isDrawerOpen = false;
 
         // 0. Input Blocker (Prevents map interaction behind drawer)
-        const inputBlocker = this.add.rectangle(0, 0, width, drawerH, 0x000000, 0).setOrigin(0);
+        const inputBlocker = this.add.rectangle(0, 0, width, drawerH, 0x000000, 0.01).setOrigin(0);
         inputBlocker.setInteractive();
         inputBlocker.on('pointerdown', (pointer, localX, localY, event) => {
             if (event) event.stopPropagation();
@@ -1323,9 +1328,13 @@ export class UIScene extends Phaser.Scene {
         container.add(panel);
 
         // Title
-        // Title
-        const titleText = this.add.text(Math.round(width / 2), 55, 'Machine upgrades', {
-            fontSize: '26px',
+        const titleFontSize = Math.floor(26 * uiScale);
+
+        // Conditional Y: Mobile (compact) vs Tablet (spacious)
+        const baseTitleY = (width > 500) ? 55 : 41;
+
+        const titleText = this.add.text(Math.round(width / 2), baseTitleY * uiScale, 'Machine upgrades', {
+            fontSize: `${titleFontSize}px`,
             fontFamily: 'Impact, Arial Black',
             color: '#ffffff',
             stroke: '#000000',
@@ -1334,54 +1343,50 @@ export class UIScene extends Phaser.Scene {
 
         container.add(titleText);
 
-        /*
-        // Title "Badge" behind text
-        const titleBadge = this.add.graphics();
-        titleBadge.fillStyle(0x000000, 0.5);
-        titleBadge.fillRoundedRect(width / 2 - titleText.width / 2 - 20, 10, titleText.width + 40, 50, 4);
-        
-        container.add(titleBadge);
-        // container.add(titleText); // Already added above
-        */
+        // --- SCROLLABLE CONTENT AREA ---
+        // Width logic: 92% of screen width (minus 10px for final spacing), max cap 520px
+        // (Reduces "stretched" look by not going full 600px)
+        this.upgradeWindowW = Math.min(width * 0.92 - 10, 520);
 
-        // Close Button — created here but added to container later (after dragZone)
-        // so it sits on top and can receive click events
-        const closeBtn = this.createIndustrialButton(30, 30, 'X', 'red', () => this.toggleUpgradeDrawer());
-        closeBtn.x = width - 47;
-        closeBtn.y = 30;
+        // Calculate Close Button Position relative to content width
+        const closeBtnSize = 30 * uiScale;
+        const contentRightEdge = (width + this.upgradeWindowW) / 2;
 
-        // Increase hit area for easier clicking (centered at 15,15 relative to container)
-        // Rectangle: x, y, width, height
-        closeBtn.setInteractive(new Phaser.Geom.Rectangle(-15, -15, 60, 60), Phaser.Geom.Rectangle.Contains);
+        // Position at top-right corner of CONTENT area (minus explicit padding)
+        // Conditional: Mobile (tight) vs Tablet (more padding)
+        const closeBtnX = (width > 500)
+            ? contentRightEdge - (closeBtnSize / 2)
+            : width - (47 * uiScale); // Original mobile offset
 
+        const closeBtnY = 30 * uiScale;
 
+        const closeBtn = this.createIndustrialButton(closeBtnSize, closeBtnSize, 'X', 'red', () => this.toggleUpgradeDrawer());
+        closeBtn.x = closeBtnX;
+        closeBtn.y = closeBtnY;
 
-        // Listen for global upgrade events to refresh UI
+        // Increase hit area
+        const hitSize = closeBtnSize * 2;
+        closeBtn.setInteractive(new Phaser.Geom.Rectangle(-hitSize / 4, -hitSize / 4, hitSize, hitSize), Phaser.Geom.Rectangle.Contains);
+
+        // Listen for global upgrade events
         const gameScene = this.scene.get(CONSTANTS.SCENES.GAME);
         if (gameScene) {
             gameScene.events.on('machineUpgraded', (data) => {
-                // Refresh slot list (content)
                 if (this.isDrawerOpen) this.refreshUpgradeSlots();
-                // Show feedback text
                 this.onMachineUpgraded(data);
             }, this);
         }
 
-        // --- SCROLLABLE CONTENT AREA ---
-        // We also need to hide the slots.
-
-        // --- SCROLLABLE CONTENT AREA ---
-        this.upgradeWindowW = width * 0.92;
-        this.upgradeContentTopY = 95;
-        const scrollAreaH = drawerH - 105;
+        this.upgradeContentTopY = 80 * uiScale;
+        const scrollAreaH = drawerH - (90 * uiScale);
         this.upgradeScrollAreaH = scrollAreaH;
 
-        // Mask (Re-enabled)
+        // Mask
         const maskShape = this.make.graphics({ x: 0, y: 0, add: false });
         maskShape.fillStyle(0xffffff);
         maskShape.fillRect((width - this.upgradeWindowW) / 2, 0, this.upgradeWindowW, scrollAreaH);
         const mask = maskShape.createGeometryMask();
-        this.upgradeMaskGraphics = maskShape; // Assign for tween updates
+        this.upgradeMaskGraphics = maskShape;
 
         // Drag Zone
         const dragZone = this.add.rectangle(
@@ -1394,7 +1399,7 @@ export class UIScene extends Phaser.Scene {
             });
         container.add(dragZone);
 
-        // Scroll Container (Added AFTER DragZone so buttons are clickable)
+        // Scroll Container
         this.upgradeScrollContainer = this.add.container(0, this.upgradeContentTopY);
         container.add(this.upgradeScrollContainer);
         this.upgradeScrollContainer.setMask(mask);
@@ -1420,7 +1425,6 @@ export class UIScene extends Phaser.Scene {
 
         this.input.on('wheel', (pointer, gameObjects, deltaX, deltaY) => {
             if (!this.isDrawerOpen) return;
-            // Simple global wheel for now
             this.upgradeScrollY = Phaser.Math.Clamp(
                 this.upgradeScrollY - deltaY * 0.5,
                 -this.upgradeScrollMax,
@@ -1429,13 +1433,12 @@ export class UIScene extends Phaser.Scene {
             this.upgradeScrollContainer.y = this.upgradeScrollY + this.upgradeContentTopY;
         });
 
-        // Add close button LAST so it layers on top of the drag zone
         container.add(closeBtn);
 
-        // Initialize empty
+        // Empty State Label
         this.upgradeSlotElements = [];
         this.upgradeEmptyLabel = this.add.text(width / 2, drawerH / 2, 'No machines available.', {
-            fontSize: '18px',
+            fontSize: `${Math.floor(18 * uiScale)}px`,
             color: '#888888'
         }).setOrigin(0.5);
         container.add(this.upgradeEmptyLabel);
@@ -1538,12 +1541,34 @@ export class UIScene extends Phaser.Scene {
             roomsByType[room.type].push(room);
         });
 
+        // Calculation for responsive layout
         const width = this.cameras.main.width;
-        const slotW = Math.round(width * 0.75);
-        const slotH = 160;
-        const gap = 7;
-        const startX = width / 2;
-        let currentY = 10;
+
+        // Recalculate Width for responsiveness (e.g. if screen resized)
+        // Ensure we respect the 520px cap and 10px offset
+        this.upgradeWindowW = Math.min(width * 0.92 - 10, 520);
+        const containerW = this.upgradeWindowW;
+
+        // Update Mask to match new width
+        if (this.upgradeMaskGraphics) {
+            this.upgradeMaskGraphics.clear();
+            this.upgradeMaskGraphics.fillStyle(0xffffff);
+            const scrollAreaH = this.upgradeScrollAreaH || (this.drawerHeight - 90 * (containerW / 370)); // approx
+            this.upgradeMaskGraphics.fillRect((width - this.upgradeWindowW) / 2, 0, this.upgradeWindowW, scrollAreaH);
+        }
+
+        const refCardW = 370;
+        // Cap visual scaling at 1.2x so elements inside card don't get huge
+        // But allow card width (containerW) to be whatever it needs (up to 530px)
+        const scale = Math.min(containerW / refCardW, 1.2);
+
+        const slotW = containerW;
+        const slotH = 160 * scale;
+        const gap = 7 * scale;
+        const startX = width / 2; // Centered
+        // Start 10px lower (20 * scale instead of 10 * scale) as requested for TABLET
+        // For mobile, keep it tight (5 * scale)
+        let currentY = (width > 500) ? 20 * scale : 5 * scale;
 
         // Reset button tracking
         this.upgradeButtons = [];
@@ -1568,20 +1593,24 @@ export class UIScene extends Phaser.Scene {
                 // Border
                 const border = this.add.graphics();
                 border.lineStyle(2, 0x555555, 1);
-                border.strokeRoundedRect(startX - slotW / 2, currentY, slotW, slotH, 12);
+                border.strokeRoundedRect(startX - slotW / 2, currentY, slotW, slotH, 12 * scale);
                 scrollTarget.add(border);
                 this.upgradeSlotElements.push(border);
 
                 // --- Machine Icon (left side) ---
                 const iconKey = room.roomDef.sprite;
                 if (iconKey && this.textures.exists(iconKey)) {
-                    const iconX = startX - slotW / 2 + Math.round(slotW * 0.16);
-                    const iconY = currentY + slotH / 2 - 23;
+                    // Position relative to LEFT edge
+                    // Conditional: Mobile (tight) vs Tablet (more padding)
+                    const iconOffset = (width > 500) ? 68 : 58;
+                    const iconX = (startX - slotW / 2) + (iconOffset * scale);
+
+                    const iconY = (currentY + slotH / 2) - (23 * scale);
                     const icon = this.add.image(iconX, iconY, iconKey);
                     // Per-type icon sizing
                     const iconSizes = { 'room_garden': 95, 'room_generator': 80 };
                     const iconMaxSize = iconSizes[iconKey] || 85;
-                    const iconScale = Math.min(iconMaxSize / icon.width, iconMaxSize / icon.height);
+                    const iconScale = Math.min((iconMaxSize * scale) / icon.width, (iconMaxSize * scale) / icon.height);
                     icon.setScale(iconScale);
                     icon.setOrigin(0.5);
                     scrollTarget.add(icon);
@@ -1589,13 +1618,16 @@ export class UIScene extends Phaser.Scene {
                 }
 
                 // --- Room Name + Level (Top Section) ---
-                const textX = startX - slotW / 2 + Math.round(slotW * 0.30);
-                const nameY = currentY + slotH / 2 - 30; // Base anchor point (moves block up/down)
-                const maxTextW = slotW - 280;
+                // Conditional: Mobile (tight) vs Tablet (more padding)
+                const textOffset = (width > 500) ? 128 : 110;
+                const textX = (startX - slotW / 2) + (textOffset * scale);
+                const nameY = (currentY + slotH / 2) - (30 * scale);
+                // Text width accounts for button on right (approx 160px from right)
+                const maxTextW = slotW - (280 * scale);
 
                 // 1. Name
                 const nameText = this.add.text(textX, nameY, room.roomDef.name || type, {
-                    fontSize: '18px',
+                    fontSize: `${Math.floor(18 * scale)}px`,
                     fontFamily: 'Arial',
                     color: '#ffffff',
                     fontStyle: 'bold',
@@ -1606,10 +1638,10 @@ export class UIScene extends Phaser.Scene {
                 scrollTarget.add(nameText);
                 this.upgradeSlotElements.push(nameText);
 
-                // 2. Level (Immediately below Name)
+                // 2. Level
                 const countStr = typeRooms.length > 1 ? ` (x${typeRooms.length})` : '';
-                const levelText = this.add.text(textX, nameY + 30, `Level ${room.level}${countStr}`, {
-                    fontSize: '12px',
+                const levelText = this.add.text(textX, nameY + (30 * scale), `Level ${room.level}${countStr}`, {
+                    fontSize: `${Math.floor(12 * scale)}px`,
                     fontFamily: 'Arial',
                     color: '#cccccc',
                     stroke: '#000000',
@@ -1618,13 +1650,13 @@ export class UIScene extends Phaser.Scene {
                 scrollTarget.add(levelText);
                 this.upgradeSlotElements.push(levelText);
 
-                // --- Description + Stats (Bottom Section) ---
-                // Combined Guide: "Description - Stats"
+                // --- Description + Stats ---
                 const currentOutput = upgradeManager.getCurrentOutput(room.type, room.level);
                 const nextOutput = upgradeManager.getCurrentOutput(room.type, room.level + 1);
 
                 let resType = 'Resources';
                 const roomDef = ECONOMY.ROOM_TYPES[room.type];
+                // ... (Resource type logic remains same, just string building)
                 if (roomDef.production) {
                     if (roomDef.production.power) resType = 'Energy';
                     else if (roomDef.resourceProducer && roomDef.resourceProducer.outputType) {
@@ -1638,36 +1670,36 @@ export class UIScene extends Phaser.Scene {
 
                 const desc = room.roomDef.description || 'Production';
                 const statInfo = `${currentOutput.toFixed(1)}/s -> ${nextOutput.toFixed(1)}/s ${resType}`;
-                const combinedStr = `${desc}   |   ${statInfo}`;
 
-                // Left align with the card (under icon)
-                const descTextX = startX - slotW / 2 + Math.round(slotW * 0.054);
+                const descTextX = (startX - slotW / 2) + (20 * scale);
+                const descY = nameY + (72.5 * scale);
+                const statsY = nameY + (90 * scale);
 
-                // Description Line
-                const descText = this.add.text(descTextX, nameY + 72.5, desc, {
-                    fontSize: '14px',
-                    fontFamily: 'Monospace',
-                    color: '#aaddaa', // Light green
-                    stroke: '#000000',
-                    strokeThickness: 2,
-                    wordWrap: { width: slotW - 30 }
-                }).setOrigin(0, 0.5).setResolution(2);
-                scrollTarget.add(descText);
-                this.upgradeSlotElements.push(descText);
-
-                // Stats Line (Next Line)
-                const statsText = this.add.text(descTextX, nameY + 90, statInfo, {
-                    fontSize: '14px',
+                // Description
+                const descText = this.add.text(descTextX, descY, desc, {
+                    fontSize: `${Math.floor(14 * scale)}px`,
                     fontFamily: 'Monospace',
                     color: '#aaddaa',
                     stroke: '#000000',
                     strokeThickness: 2,
-                    wordWrap: { width: slotW - 30 }
+                    wordWrap: { width: slotW - (30 * scale) }
+                }).setOrigin(0, 0.5).setResolution(2);
+                scrollTarget.add(descText);
+                this.upgradeSlotElements.push(descText);
+
+                // Stats
+                const statsText = this.add.text(descTextX, statsY, statInfo, {
+                    fontSize: `${Math.floor(14 * scale)}px`,
+                    fontFamily: 'Monospace',
+                    color: '#aaddaa',
+                    stroke: '#000000',
+                    strokeThickness: 2,
+                    wordWrap: { width: slotW - (30 * scale) }
                 }).setOrigin(0, 0.5).setResolution(2);
                 scrollTarget.add(statsText);
                 this.upgradeSlotElements.push(statsText);
 
-                // --- Upgrade Button (Image-based) ---
+                // --- Upgrade Button ---
                 const affordability = upgradeManager.canAffordUpgrade(room.key);
                 const canAfford = affordability.canAfford;
                 const failureReason = affordability.reason;
@@ -1675,8 +1707,8 @@ export class UIScene extends Phaser.Scene {
                 const cost = upgradeManager.getUpgradeCost(room.type, room.level);
 
                 if (isMax) {
-                    const maxLabel = this.add.text(startX + slotW / 2 - 60, currentY + slotH / 2, 'MAX', {
-                        fontSize: '16px',
+                    const maxLabel = this.add.text(startX + slotW / 2 - (60 * scale), currentY + slotH / 2, 'MAX', {
+                        fontSize: `${Math.floor(16 * scale)}px`,
                         fontFamily: 'Arial',
                         color: '#ffdd44',
                         fontStyle: 'bold',
@@ -1687,26 +1719,22 @@ export class UIScene extends Phaser.Scene {
                     this.upgradeSlotElements.push(maxLabel);
                 } else {
                     const btnKey = canAfford ? 'ui_btn_upgrade_green' : 'ui_btn_upgrade_gray';
-                    const btnW = 140;
-                    const btnH = 110;
-                    const btnX = startX + slotW / 2 - btnW / 2 - 10;
-                    const btnY = currentY + slotH / 2 - 20;
+                    const btnW = 140 * scale;
+                    const btnH = 110 * scale;
+                    // Position relative to RIGHT edge minus padding
+                    const btnX = (startX + slotW / 2) - (btnW / 2) - (10 * scale);
+                    const btnY = (currentY + slotH / 2) - (20 * scale);
 
-                    // Create Container for unified animation (Button + Text)
                     const btnContainer = this.add.container(btnX, btnY);
-
                     const btn = this.add.image(0, 0, btnKey);
                     btn.setOrigin(0.5);
                     btn.setDisplaySize(btnW, btnH);
 
-                    // Ensure interactive (on top layer checks handled by container add order)
-                    // Use rectangle hit area for consistent behavior
                     btn.setInteractive(new Phaser.Geom.Rectangle(0, 0, btn.width, btn.height), Phaser.Geom.Rectangle.Contains);
 
                     // Cost Logic
                     let costText = '';
                     let costColor = '#dddddd';
-
                     if (!canAfford && failureReason === 'Insufficient Grid Capacity') {
                         costText = 'NEED POWER\n(Grid Full)';
                         costColor = '#ff5555';
@@ -1718,9 +1746,8 @@ export class UIScene extends Phaser.Scene {
                         costText = lines.join('\n');
                     }
 
-                    // "Upgrade" label at top
-                    const upgradeLabel = this.add.text(0, -20, 'Upgrade', {
-                        fontSize: '18px',
+                    const upgradeLabel = this.add.text(0, -(20 * scale), 'Upgrade', {
+                        fontSize: `${Math.floor(18 * scale)}px`,
                         fontFamily: 'Arial',
                         color: '#ffffff',
                         fontStyle: 'bold',
@@ -1728,9 +1755,8 @@ export class UIScene extends Phaser.Scene {
                         strokeThickness: 3
                     }).setOrigin(0.5).setResolution(2);
 
-                    // Cost label at bottom
-                    const costLabel = this.add.text(0, 10, costText, {
-                        fontSize: '14px',
+                    const costLabel = this.add.text(0, (10 * scale), costText, {
+                        fontSize: `${Math.floor(14 * scale)}px`,
                         fontFamily: 'Arial',
                         color: costColor,
                         stroke: '#000000',
@@ -1739,54 +1765,39 @@ export class UIScene extends Phaser.Scene {
                         wordWrap: { width: btnW - 10 }
                     }).setOrigin(0.5).setResolution(2);
 
-                    // Add to Container
                     btnContainer.add([btn, upgradeLabel, costLabel]);
                     scrollTarget.add(btnContainer);
                     this.upgradeSlotElements.push(btnContainer);
 
                     // Interaction
-                    btn.on('pointerover', () => {
-                        // Optional hover
-                    });
-                    btn.on('pointerout', () => {
-                        btn.clearTint();
-                    });
+                    btn.on('pointerout', () => btn.clearTint());
 
                     btn.on('pointerdown', () => {
                         if (canAfford) {
-                            // Press Effect: Darker Tint
                             btn.setTint(0x999999);
-
-                            // Visual feedback (animate container)
                             this.tweens.add({
                                 targets: btnContainer,
                                 scaleX: 0.95,
                                 scaleY: 0.95,
-                                y: btnY + 4, // Move container down
+                                y: btnY + 4,
                                 duration: 80,
                                 yoyo: true,
                                 onComplete: () => {
-                                    btn.clearTint(); // Restore brightness
-                                    // Upgrade ALL machines of this type
+                                    btn.clearTint();
                                     const success = upgradeManager.upgradeMachineType(room.type);
                                     if (success) {
-                                        // Event 'machineUpgraded' is emitted by manager and handled globally
-                                        // No need to call this.onMachineUpgraded manually (fixes double text)
                                         console.log(`Global upgrade triggered for ${room.type}`);
                                     }
                                 }
                             });
                         } else {
-                            // Disabled feedback (shake container)
                             this.tweens.add({
                                 targets: btnContainer,
                                 x: btnX + 5,
                                 duration: 50,
                                 yoyo: true,
                                 repeat: 3,
-                                onComplete: () => {
-                                    btnContainer.x = btnX; // Reset position
-                                }
+                                onComplete: () => btnContainer.x = btnX
                             });
                         }
                     });
@@ -1799,16 +1810,12 @@ export class UIScene extends Phaser.Scene {
                         costLabel: costLabel
                     });
                 }
-
-
             }
 
-            // Advance Y for next slot
+            // Advance Y
             currentY += slotH + gap;
         });
 
-        // Calculate scroll bounds
-        // Add extra padding at bottom so last card isn't cut off
         const contentHeight = currentY + 100;
         this.upgradeScrollMax = Math.max(0, contentHeight - this.upgradeScrollAreaH);
     }

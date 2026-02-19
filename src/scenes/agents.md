@@ -65,3 +65,7 @@ Grid values are defined in **`grid_config.json`** at the project root. Both Pyth
 * **Registry Communication**: Use `this.registry` to share data between scenes.
 * **Responsive Layout**: Always calculate positions using `this.cameras.main.width/height`.
 * **Input Management**: Explicitly block world input when interacting with UI (`uiBlocked`).
+* **UI Scaling**:
+    *   Use a reference width (e.g., 412px for Mobile).
+    *   Calculate `contentScale = Math.min(width / refWidth, 1.2)`. (Cap content scaling to prevent HUGE elements).
+    *   Allow container width to grow independently (e.g., `Math.min(width * 0.92, 530)`) for balanced aspect ratios.
