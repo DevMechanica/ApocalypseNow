@@ -69,3 +69,4 @@ Grid values are defined in **`grid_config.json`** at the project root. Both Pyth
     *   Use a reference width (e.g., 412px for Mobile).
     *   Calculate `contentScale = Math.min(width / refWidth, 1.2)`. (Cap content scaling to prevent HUGE elements).
     *   Allow container width to grow independently (e.g., `Math.min(width * 0.92, 530)`) for balanced aspect ratios.
+    *   Listen to `this.scale.on('resize', this.handleResize, this)` to trigger recalculations of dynamic layout components (e.g., Resource Bars).

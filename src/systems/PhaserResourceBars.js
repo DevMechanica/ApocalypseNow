@@ -109,7 +109,9 @@ export class PhaserResourceBars {
         const container = this.scene.add.container(x, y);
         container.setScale(scale);
 
-        // 1. NineSlice Background (Base Layer)
+        const isInfinite = (key === 'caps');
+
+        // 1. Background (Base Layer)
         // Slices: left 85 (Protect Icon), Right 25, Top 10, Bottom 10
         const bg = this.scene.add.nineslice(
             0, 0,
@@ -119,16 +121,6 @@ export class PhaserResourceBars {
             85, 25, 10, 10
         );
         container.add(bg);
-
-        // 2. Graphics Layers for Seamless Fill
-        // Glow (Behind Fill)
-        const glowGraphics = this.scene.add.graphics();
-        glowGraphics.setBlendMode(Phaser.BlendModes.ADD);
-        container.add(glowGraphics);
-
-        // Fill (Main Content)
-        const fillGraphics = this.scene.add.graphics();
-        container.add(fillGraphics);
 
         // Calculate precise Dimensions
         const iconWidth = 45;
@@ -143,8 +135,63 @@ export class PhaserResourceBars {
         const barAreaHeight = Math.max(0, height - paddingTop - paddingBottom);
         const cornerRadius = 10;
 
+        // --- NEW: Generate Textures Once ---
+        const wStr = Math.round(barAreaWidth);
+        const hStr = Math.round(barAreaHeight);
+
+        const trackKey = `res_track_${wStr}x${hStr}`;
+        if (!isInfinite && !this.scene.textures.exists(trackKey)) {
+            const g = this.scene.make.graphics({ x: 0, y: 0, add: false });
+            g.fillStyle(0x000000, 0.45);
+            g.fillRoundedRect(0, 0, barAreaWidth, barAreaHeight, cornerRadius);
+            g.lineStyle(1, 0x000000, 0.3);
+            g.strokeRoundedRect(0, 0, barAreaWidth, barAreaHeight, cornerRadius);
+            g.generateTexture(trackKey, barAreaWidth, barAreaHeight);
+            g.destroy();
+        }
+
+        const fillKey = `res_fill_${wStr}x${hStr}`;
+        if (!this.scene.textures.exists(fillKey)) {
+            const g = this.scene.make.graphics({ x: 0, y: 0, add: false });
+            const r = cornerRadius;
+            const w = barAreaWidth;
+            const h = barAreaHeight;
+
+            // 1. Main fill (White so it tints perfectly)
+            g.fillStyle(0xffffff, 0.85);
+            g.fillRoundedRect(0, 1, w, h - 2, r);
+
+            // 2. Highlight strip at top
+            if (w > 4 && h > 6) {
+                g.fillStyle(0xffffff, 0.5);
+                g.fillRoundedRect(2, 2, w - 4, h * 0.22, r / 2);
+            }
+
+            // 3. Subtle edge highlight on right side
+            if (w > 3) {
+                g.fillStyle(0xffffff, 0.3);
+                g.fillRect(w - 2, 2, 2, h - 4);
+            }
+
+            g.generateTexture(fillKey, w, h);
+            g.destroy();
+        }
+
+        // 2. Add Track and Fill Images
+        let trackImg, fillImg;
+
+        if (!isInfinite) {
+            trackImg = this.scene.add.image(fillStartX, barAreaY, trackKey).setOrigin(0, 0);
+            container.add(trackImg);
+
+            fillImg = this.scene.add.image(fillStartX, barAreaY, fillKey).setOrigin(0, 0);
+            fillImg.setTint(config.color);
+            container.add(fillImg);
+        }
+
         // 3. Text
-        const textX = 0; // Center text in the container
+        // Center text in the container 
+        const textX = 0;
         const textY = 0;
         const fontSize = Math.floor(height * 0.55); // 55% of height
 
@@ -155,7 +202,7 @@ export class PhaserResourceBars {
             stroke: '#000000',
             strokeThickness: 4
         });
-        text.setOrigin(0.5, 0.5);
+        text.setOrigin(0.5, 0.5); // Centered
 
         container.add(text);
 
@@ -214,19 +261,17 @@ export class PhaserResourceBars {
 
         // Store references
         this.barElements[key] = {
-            glowGraphics: glowGraphics,
-            fillGraphics: fillGraphics,
+            container: container,
+            trackImg: trackImg,
+            fillImg: fillImg,
             text: text,
             dayText: dayText, // Undefined for non-caps
             waveText: waveText,
 
             // Dimensions for updating
-            fillStartX: fillStartX,
-            barAreaY: barAreaY,
             barAreaWidth: barAreaWidth,
             barAreaHeight: barAreaHeight,
-            cornerRadius: cornerRadius,
-            baseColor: config.color,
+            isInfinite: isInfinite,
 
             // Caching
             lastPercentage: -1
@@ -246,8 +291,12 @@ export class PhaserResourceBars {
             const max = state.resourceMax[key] || 0;
 
             // Update Text
-            const maxText = max > 0 ? max.toLocaleString() : '∞';
-            el.text.setText(`${current.toLocaleString()}/${maxText}`);
+            if (el.isInfinite) {
+                el.text.setText(`${current.toLocaleString()}`);
+            } else {
+                const maxText = max > 0 ? max.toLocaleString() : '∞';
+                el.text.setText(`${current.toLocaleString()}/${maxText}`);
+            }
 
             // Calc Percentage
             let percentage = 0;
@@ -297,58 +346,48 @@ export class PhaserResourceBars {
             if (Math.abs(percentage - el.lastPercentage) < 0.001) return;
             el.lastPercentage = percentage;
 
-            const fillW = Math.max(0, el.barAreaWidth * percentage);
+            if (!el.isInfinite && el.fillImg) {
+                const fillW = Math.max(0, el.barAreaWidth * percentage);
 
-            // Redraw Graphics
-            const g = el.fillGraphics;
-            const glow = el.glowGraphics;
-
-            g.clear();
-            glow.clear();
-
-            // Draw dark inset track (always visible, gives depth)
-            const r = el.cornerRadius;
-            const x = el.fillStartX;
-            const y = el.barAreaY;
-            const h = el.barAreaHeight;
-            const fullW = el.barAreaWidth;
-
-            glow.fillStyle(0x000000, 0.45);
-            glow.fillRoundedRect(x, y, fullW, h, r);
-            // Inner border for inset look
-            glow.lineStyle(1, 0x000000, 0.3);
-            glow.strokeRoundedRect(x, y, fullW, h, r);
-
-            if (fillW > 0) {
-                const baseColorObj = Phaser.Display.Color.IntegerToColor(el.baseColor);
-                const baseColor = baseColorObj.color;
-                const darkerColor = baseColorObj.clone().darken(30).color;
-                const darkestColor = baseColorObj.clone().darken(50).color;
-
-                // 1. Dark base layer (bottom shadow)
-                g.fillStyle(darkestColor, 0.9);
-                g.fillRoundedRect(x, y, fillW, h, r);
-
-                // 2. Main fill (slightly inset for bevel effect)
-                g.fillStyle(darkerColor, 1.0);
-                g.fillRoundedRect(x, y + 1, fillW, h - 2, r);
-
-                // 3. Lighter top half for metallic gradient
-                g.fillStyle(baseColor, 0.85);
-                g.fillRoundedRect(x, y + 1, fillW, h * 0.5, r);
-
-                // 4. Bright highlight strip at top
-                g.fillStyle(0xffffff, 0.15);
-                if (fillW > 4 && h > 6) {
-                    g.fillRoundedRect(x + 2, y + 2, fillW - 4, h * 0.22, r / 2);
-                }
-
-                // 5. Subtle edge highlight on right side of fill
-                if (fillW > 3) {
-                    g.fillStyle(0xffffff, 0.1);
-                    g.fillRect(x + fillW - 2, y + 2, 2, h - 4);
+                if (fillW === 0) {
+                    el.fillImg.setVisible(false);
+                } else {
+                    el.fillImg.setVisible(true);
+                    el.fillImg.setCrop(0, 0, fillW, el.barAreaHeight);
                 }
             }
+        });
+    }
+
+    resize(width, height) {
+        if (!this.barContainer) return;
+
+        // Recalculate Scales layout
+        this.barContainer.setPosition(width / 2, 40);
+
+        const keys = Object.keys(this.config);
+        const totalBars = keys.length;
+        const baseBarWidth = 180;
+
+        const spacing = 5;
+        const totalSpacing = spacing * (totalBars - 1);
+        const safeWidth = width * 0.90; // 5% padding each side
+        const availableWidthPerBar = (safeWidth - totalSpacing) / totalBars;
+        const globalWidthScale = availableWidthPerBar / baseBarWidth;
+
+        const totalRowDisplayWidth = (availableWidthPerBar * totalBars) + totalSpacing;
+        let startX = -(totalRowDisplayWidth / 2);
+
+        keys.forEach(key => {
+            const el = this.barElements[key];
+            if (!el || !el.container) return;
+
+            const currentBarDisplayWidth = baseBarWidth * globalWidthScale;
+            const x = startX + (currentBarDisplayWidth / 2);
+            startX += currentBarDisplayWidth + spacing;
+
+            el.container.setPosition(x, 0);
+            el.container.setScale(globalWidthScale);
         });
     }
 

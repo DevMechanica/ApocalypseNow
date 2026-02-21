@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(python -c:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(test:*)",
+      "Bash(ls:*)"
     ]
   }
 }
