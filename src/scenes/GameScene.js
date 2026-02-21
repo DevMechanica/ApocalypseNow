@@ -742,8 +742,8 @@ export class GameScene extends Phaser.Scene {
 
                 console.log('Player arrived at elevator. Waiting for cutscene...');
 
-                // Wait 1.5 seconds then play cutscene
-                this.time.delayedCall(1500, () => {
+                // Brief pause then play cutscene
+                this.time.delayedCall(400, () => {
                     if (this.playerState === 'WAITING_AT_ELEVATOR') {
                         this.playElevatorCutscene(this.targetFloor);
                     }
@@ -872,7 +872,7 @@ export class GameScene extends Phaser.Scene {
         // Switch state
         this.playerState = 'WATCHING_CUTSCENE';
 
-        const travelDelay = 1500; // Time between floors (ms)
+        const travelDelay = 500; // Time between floors (ms)
 
         // --- PHASE 1: Departure Floor ---
         // Set player depth HIGH so visible above video during entry
@@ -1056,7 +1056,7 @@ export class GameScene extends Phaser.Scene {
             this.tweens.add({
                 targets: video,
                 alpha: 0,
-                duration: 500,
+                duration: 200,
                 ease: 'Linear',
                 onComplete: () => {
                     video.destroy();
