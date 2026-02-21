@@ -4,7 +4,9 @@
       "Bash(python -c:*)",
       "Bash(wc:*)",
       "Bash(test:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(tail:*)",
+      "mcp__ide__getDiagnostics"
     ]
   }
 }

@@ -7,10 +7,10 @@ import { ECONOMY } from '../config.js';
  * Handles cost calculation, output scaling, and atomic upgrade transactions.
  * 
  * Design:
- * - 3-Tier Upgrade System:
- *   - Tier 1 (Lvl 1-20): Fast progress. Cost = Base * (1.1 ^ L). No Energy increase.
- *   - Tier 2 (Lvl 21-60): Economic friction. Cost = Base * (1.2 ^ L) + Money * L. No Energy increase.
- *   - Tier 3 (Lvl 61+): Infrastructure Bottleneck. High scaling costs + Energy Gate.
+ * - 3-Tier Upgrade System (100-Level Cap):
+ *   - Tier 1 (Lvl 1-25): Fast progress. Cost = BaseScrap * (1.1 ^ L). Materials only.
+ *   - Tier 2 (Lvl 26-75): Economic friction. Cost = BaseScrap * (1.2 ^ L) + BaseMoney * L * 5. No Energy increase.
+ *   - Tier 3 (Lvl 76-100): Infrastructure Bottleneck. High scaling costs + Energy Gate.
  * 
  * - Energy Gate:
  *   - Upgrade fails if (TotalCapacity - CurrentLoad) < NewEnergyLoad_Increase.
@@ -54,14 +54,14 @@ export class MachineUpgradeManager {
 
     /**
      * Calculate the dynamic power load for a room at a specific level.
-     * 
+     *
      * Logic:
-     * - Tier 1 & 2 (Lvl 1-60): Base Power Cost (No increase).
-     * - Tier 3 (Lvl 61+): Power Load increases exponentially.
-     *   Formula: BasePower * (1.5 ^ (Level - 60))
-     * 
-     * @param {string} roomType 
-     * @param {number} level 
+     * - Tier 1 & 2 (Lvl 1-75): Base Power Cost (No increase).
+     * - Tier 3 (Lvl 76+): Power Load increases exponentially.
+     *   Formula: BasePower * (1.5 ^ (Level - 75))
+     *
+     * @param {string} roomType
+     * @param {number} level
      * @returns {number} Current power draw
      */
     getPowerLoad(roomType, level) {
@@ -71,23 +71,22 @@ export class MachineUpgradeManager {
         const basePower = roomDef.powerCost || 0;
         if (basePower === 0) return 0; // Generators don't consume power
 
-        if (level <= 60) {
+        if (level <= 75) {
             return basePower;
         } else {
             // Tier 3: Energy Gate
-            // Using 1.5 ^ (L - 60) to prevent integer overflow while keeping the curve steep
-            return Math.ceil(basePower * Math.pow(1.5, level - 60));
+            return Math.ceil(basePower * Math.pow(1.5, level - 75));
         }
     }
 
     /**
      * Calculate the cost for upgrading a room to the next level.
      * 
-     * 3-Tier System:
-     * - Tier 1 (1-20): Scrap * 1.1^L
-     * - Tier 2 (21-60): Scrap * 1.2^L + Money * L
-     * - Tier 3 (61+): Scrap * HighScale + Money * HighScale + Energy Delta
-     * 
+     * 3-Tier System (100-Level Cap):
+     * - Tier 1 (1-25): Materials only. Scrap = BaseScrap * 1.1^L
+     * - Tier 2 (26-75): Materials + Caps. Scrap = BaseScrap * 1.2^L, Caps = BaseMoney * L * 5
+     * - Tier 3 (76-100): Materials + Caps + Energy Gate. Scrap = BaseScrap * 1.3^L, Caps = BaseMoney * 1.3^L
+     *
      * @param {string} roomType - The room type key
      * @param {number} currentLevel - Current level of the room
      * @returns {Object|null} { caps: number, materials: number, powerDelta: number }
@@ -105,25 +104,21 @@ export class MachineUpgradeManager {
 
         let cost = { materials: 0, caps: 0, powerDelta: 0 };
 
-        // --- TIER 1: EARLY GAME (Levels 1-20) ---
-        if (currentLevel < 20) {
-            // Strategy: Fast, satisfying progress.
-            // Cost: Scrap = BaseScrap * (1.1 ^ L)
+        // --- TIER 1: EARLY GAME (Levels 1-25) ---
+        if (currentLevel <= 25) {
+            // Strategy: Fast, satisfying progress. Materials only.
             cost.materials = Math.ceil(baseScrap * Math.pow(1.1, currentLevel));
-            cost.caps = Math.ceil(baseMoney * Math.pow(1.1, currentLevel)); // Keep caps scaling consistent for now
+            cost.caps = 0;
         }
-        // --- TIER 2: MID GAME (Levels 20-60) ---
-        else if (currentLevel < 60) {
-            // Strategy: Economic friction.
-            // Cost: Scrap = BaseScrap * (1.2 ^ L) (Steeper curve)
-            // Money = BaseMoney * L (Linear scaling)
+        // --- TIER 2: MID GAME (Levels 26-75) ---
+        else if (currentLevel <= 75) {
+            // Strategy: Economic friction. Materials + Caps.
             cost.materials = Math.ceil(baseScrap * Math.pow(1.2, currentLevel));
-            cost.caps = Math.ceil(baseMoney * currentLevel * 5); // Multiplier to make linear feel significant
+            cost.caps = Math.ceil(baseMoney * currentLevel * 5);
         }
-        // --- TIER 3: LATE GAME (Levels 60+) ---
+        // --- TIER 3: LATE GAME (Levels 76-100) ---
         else {
-            // Strategy: Infrastructure Bottleneck.
-            // Cost: High scaling
+            // Strategy: Infrastructure Bottleneck. Materials + Caps + Energy Gate.
             cost.materials = Math.ceil(baseScrap * Math.pow(1.3, currentLevel));
             cost.caps = Math.ceil(baseMoney * Math.pow(1.3, currentLevel));
 
@@ -211,8 +206,7 @@ export class MachineUpgradeManager {
         if (!state || !state.rooms[roomKey]) return false;
 
         const room = state.rooms[roomKey];
-        const max = this.upgradeConfig.maxLevel || 100; // Increased to 100 for Tier 3
-        return room.level >= max;
+        return room.level >= 100;
     }
 
     /**

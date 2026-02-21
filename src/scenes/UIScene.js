@@ -2,6 +2,7 @@ import * as Phaser from 'phaser';
 
 import { PhaserResourceBars } from '../systems/PhaserResourceBars.js';
 import { CONSTANTS, ECONOMY, INITIAL_GAME_STATE } from '../config.js';
+import { formatNumber } from '../utils/formatNumber.js';
 
 export class UIScene extends Phaser.Scene {
     constructor() {
@@ -717,11 +718,11 @@ export class UIScene extends Phaser.Scene {
 
         // Update text
         if (key === 'caps') {
-            text.setText(`$${current.toLocaleString()}`);
+            text.setText(`$${formatNumber(current)}`);
         } else if (max > 0) {
-            text.setText(`${current}/${max}`);
+            text.setText(`${formatNumber(current)}/${formatNumber(max)}`);
         } else {
-            text.setText(`${current}`);
+            text.setText(`${formatNumber(current)}`);
         }
 
         // Redraw Bar
@@ -1144,8 +1145,8 @@ export class UIScene extends Phaser.Scene {
             const capsCost = room.buildCost.caps || 0;
             let costString = '';
 
-            if (matCost > 0) costString += `${matCost} Mat`;
-            if (capsCost > 0) costString += (costString ? '\n' : '') + `$${capsCost}`;
+            if (matCost > 0) costString += `${formatNumber(matCost)} Mat`;
+            if (capsCost > 0) costString += (costString ? '\n' : '') + `$${formatNumber(capsCost)}`;
 
             // Cost - Fixed at bottom
             const costBg = this.add.rectangle(slotX, slotY + slotSize / 2 - 15, slotSize - 4, 24, 0x000000, 0.7);
@@ -1681,7 +1682,7 @@ export class UIScene extends Phaser.Scene {
                 }
 
                 const desc = room.roomDef.description || 'Production';
-                const statInfo = `${currentOutput.toFixed(1)}/s -> ${nextOutput.toFixed(1)}/s ${resType}`;
+                const statInfo = `${formatNumber(currentOutput)}/s -> ${formatNumber(nextOutput)}/s ${resType}`;
 
                 const descTextX = (startX - slotW / 2) + (20 * scale);
                 const descY = nameY + (72.5 * scale);
@@ -1752,9 +1753,9 @@ export class UIScene extends Phaser.Scene {
                         costColor = '#ff5555';
                     } else if (cost) {
                         const lines = [];
-                        if (cost.materials) lines.push(`${cost.materials} Scrap`);
-                        if (cost.caps) lines.push(`${cost.caps} Money`);
-                        if (cost.powerDelta) lines.push(`+${cost.powerDelta} Pwr`);
+                        if (cost.materials) lines.push(`${formatNumber(cost.materials)} Scrap`);
+                        if (cost.caps) lines.push(`${formatNumber(cost.caps)} Money`);
+                        if (cost.powerDelta) lines.push(`+${formatNumber(cost.powerDelta)} Pwr`);
                         costText = lines.join('\n');
                     }
 

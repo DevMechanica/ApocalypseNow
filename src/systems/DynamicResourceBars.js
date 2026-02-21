@@ -1,3 +1,5 @@
+import { formatNumber } from '../utils/formatNumber.js';
+
 export class DynamicResourceBars {
     constructor(scene) {
         this.scene = scene;
@@ -136,8 +138,8 @@ export class DynamicResourceBars {
             const current = Math.floor(state.resources[key] || 0);
             const max = state.resourceMax[key] || 0;
 
-            if (el.current) el.current.textContent = current.toLocaleString();
-            if (el.max) el.max.textContent = max > 0 ? max.toLocaleString() : '∞';
+            if (el.current) el.current.textContent = formatNumber(current);
+            if (el.max) el.max.textContent = max > 0 ? formatNumber(max) : '∞';
 
             if (el.fill) {
                 let percentage = 0;

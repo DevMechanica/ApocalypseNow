@@ -68,6 +68,7 @@ const config = {
 };
 
 const game = new Phaser.Game(config);
+window.__GAME = game; // Debug access
 
 // Handle resize
 
