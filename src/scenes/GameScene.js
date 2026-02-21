@@ -17,9 +17,9 @@ const GRID_CONFIG = {
     // Note: Python uses source sizes (1024x357 room), we use scaled sizes
     // These offsets are relative to the target asset size
     assetYOffsets: {
-        garden: -25,
-        water_purifier: -1,
-        scrap_machine: 90
+        garden: -10,
+        water_purifier: 14,
+        scrap_machine: 105
     },
     assetXOffsets: {
         scrap_machine: -60
@@ -1661,16 +1661,16 @@ export class GameScene extends Phaser.Scene {
         if (roomType === 'hydroponic_garden') {
             // ANIMATED SPRITE SHEET: Garden animation with transparent background
             if (this.textures.exists('garden_anim')) {
-                // Create animation if not already created
-                if (!this.anims.exists('garden_grow')) {
-                    this.anims.create({
-                        key: 'garden_grow',
-                        frames: this.anims.generateFrameNumbers('garden_anim'),
-                        frameRate: 12,
-                        repeat: 0  // Play once and stop
-                    });
-                    console.log('[Garden] Animation created (play once)');
+                // Always recreate animation to ensure looping is set
+                if (this.anims.exists('garden_grow')) {
+                    this.anims.remove('garden_grow');
                 }
+                this.anims.create({
+                    key: 'garden_grow',
+                    frames: this.anims.generateFrameNumbers('garden_anim'),
+                    frameRate: 12,
+                    repeat: -1  // Loop forever
+                });
 
                 // Create animated sprite
                 const gardenSprite = this.add.sprite(0, 0, 'garden_anim');
@@ -1689,6 +1689,28 @@ export class GameScene extends Phaser.Scene {
                 gardenSprite.setPosition(transform.x, transform.y);
                 gardenSprite.setScale(transform.scale);
                 gardenSprite.play('garden_grow');
+
+                // Produce food each time the growth animation completes a cycle
+                gardenSprite.on('animationrepeat', () => {
+                    const state = this.registry.get('gameState');
+                    if (!state || !state.resources) return;
+
+                    const roomDef = ECONOMY.ROOM_TYPES['hydroponic_garden'];
+                    const amount = roomDef?.resourceProducer?.amount || 1;
+
+                    state.resources.food = Math.min(
+                        (state.resources.food || 0) + amount,
+                        state.resourceMax?.food || Infinity
+                    );
+
+                    this.registry.set('gameState', state);
+                    this.events.emit('economyTick', state);
+                    this.events.emit('resourceProduced', {
+                        type: 'food',
+                        amount: amount,
+                        source: { x: transform.x, y: transform.y }
+                    });
+                });
 
                 this.roomVisuals[key] = gardenSprite;
                 console.log(`[Garden] Animated sprite created at (${roomX}, ${roomY})`);
