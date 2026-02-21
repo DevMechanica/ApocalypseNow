@@ -63,6 +63,9 @@ export class GameScene extends Phaser.Scene {
         // Initialize Upgrade Manager
         this.upgradeManager = new MachineUpgradeManager(this);
 
+        // Process garden spritesheet — remove white background
+        this.processGardenTexture();
+
         // Restore Existing Rooms
         this.restoreRooms();
 
@@ -128,6 +131,11 @@ export class GameScene extends Phaser.Scene {
         if (CONFIG.devMode) {
             this.drawDevModeLines();
         }
+
+        // Running Animation (video-based)
+        this.ensureChromaKeyPipeline();
+        this.setupRunningAnimation();
+        this.events.on('postupdate', this.syncRunningAnimation, this);
 
         // Elevator Highlight (Glow)
         this.elevatorGlow = this.add.graphics();
@@ -983,41 +991,8 @@ export class GameScene extends Phaser.Scene {
 
         let halfwayTriggered = false;
 
-        // Ensure ChromaKey PostFX Pipeline is registered (may already be registered by garden video)
-        if (!this.game.registry.get('ChromaKeyPipelineClass')) {
-            class ChromaKeyPipeline extends Phaser.Renderer.WebGL.Pipelines.PostFXPipeline {
-                constructor(game) {
-                    super({
-                        game: game,
-                        fragShader: `
-                            precision mediump float;
-                            uniform sampler2D uMainSampler;
-                            varying vec2 outTexCoord;
-                            
-                            void main(void) {
-                                vec4 color = texture2D(uMainSampler, outTexCoord);
-                                
-                                // Target color: White (RGB ~1.0)
-                                // Calculate luminance for better white detection
-                                float luminance = dot(color.rgb, vec3(0.299, 0.587, 0.114));
-                                
-                                // If pixel is very bright (close to white)
-                                if (luminance > 0.85 && color.r > 0.8 && color.g > 0.8 && color.b > 0.8) {
-                                    color.a = 0.0;
-                                }
-                                
-                                gl_FragColor = color;
-                            }
-                        `
-                    });
-                }
-            }
-
-            // Register the pipeline class
-            this.game.renderer.pipelines.addPostPipeline('ChromaKeyFX', ChromaKeyPipeline);
-            this.game.registry.set('ChromaKeyPipelineClass', true);
-            console.log('[Elevator] ChromaKey PostFX pipeline registered');
-        }
+        // Ensure ChromaKey is available (registered in create via ensureChromaKeyPipeline)
+        this.ensureChromaKeyPipeline();
 
         video.on('play', () => {
             this.time.delayedCall(100, () => {
@@ -1259,6 +1234,202 @@ export class GameScene extends Phaser.Scene {
 
         ctx.putImageData(imageData, 0, 0);
         textureManager.addCanvas('player_processed', canvas);
+    }
+
+    processGardenTexture() {
+        if (!this.textures.exists('garden_anim')) return;
+
+        const sourceImage = this.textures.get('garden_anim').getSourceImage();
+        if (!sourceImage) return;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = sourceImage.width;
+        canvas.height = sourceImage.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(sourceImage, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imageData.data;
+
+        // Remove white background (same threshold as running animation)
+        for (let i = 0; i < data.length; i += 4) {
+            if (data[i] > 200 && data[i + 1] > 200 && data[i + 2] > 200) {
+                data[i + 3] = 0;
+            }
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+
+        // Replace the spritesheet texture with the processed version
+        this.textures.remove('garden_anim');
+        this.textures.addSpriteSheet('garden_anim', canvas, { frameWidth: 921, frameHeight: 1080 });
+
+        console.log('[Garden] Texture processed — white background removed');
+    }
+
+    ensureChromaKeyPipeline() {
+        if (this.game.registry.get('ChromaKeyPipelineClass')) return;
+
+        class ChromaKeyPipeline extends Phaser.Renderer.WebGL.Pipelines.PostFXPipeline {
+            constructor(game) {
+                super({
+                    game: game,
+                    fragShader: `
+                        precision mediump float;
+                        uniform sampler2D uMainSampler;
+                        varying vec2 outTexCoord;
+
+                        void main(void) {
+                            vec4 color = texture2D(uMainSampler, outTexCoord);
+                            float luminance = dot(color.rgb, vec3(0.299, 0.587, 0.114));
+                            if (luminance > 0.85 && color.r > 0.8 && color.g > 0.8 && color.b > 0.8) {
+                                color.a = 0.0;
+                            }
+                            gl_FragColor = color;
+                        }
+                    `
+                });
+            }
+        }
+
+        this.game.renderer.pipelines.addPostPipeline('ChromaKeyFX', ChromaKeyPipeline);
+        this.game.registry.set('ChromaKeyPipelineClass', true);
+        console.log('[GameScene] ChromaKey PostFX pipeline registered');
+    }
+
+    setupRunningAnimation() {
+        // Use a hidden Phaser Video to access the HTML5 video element
+        this.runVideoObj = this.add.video(-9999, -9999, 'player_running');
+        this.runVideoObj.setVisible(false);
+        this.runVideoObj.play(true);
+        if (this.runVideoObj.video) this.runVideoObj.video.muted = true;
+
+        this.isRunAnimActive = false;
+        this.runVideoConfigured = false;
+        this.runSprite = null;
+
+        // Poll until video dimensions are available, then set up canvas processing
+        const configTimer = this.time.addEvent({
+            delay: 150,
+            loop: true,
+            callback: () => {
+                if (this.runVideoConfigured) { configTimer.destroy(); return; }
+                if (!this.runVideoObj || !this.runVideoObj.video) return;
+
+                if (this.runVideoObj.video) this.runVideoObj.video.muted = true;
+
+                const videoEl = this.runVideoObj.video;
+                const vidW = videoEl.videoWidth;
+                const vidH = videoEl.videoHeight;
+                if (vidW <= 0 || vidH <= 0) return;
+
+                this.runVideoConfigured = true;
+                configTimer.destroy();
+
+                // Crop 40% from each side to remove black borders
+                this.runCropX = Math.floor(vidW * 0.40);
+                this.runCropW = vidW - (this.runCropX * 2);
+                this.runCropH = vidH;
+
+                // Canvas for real-time chroma key processing
+                this.runCanvas = document.createElement('canvas');
+                this.runCanvas.width = this.runCropW;
+                this.runCanvas.height = this.runCropH;
+                this.runCtx = this.runCanvas.getContext('2d', { willReadFrequently: true });
+
+                // CanvasTexture for Phaser to render the processed frames
+                this.textures.addCanvas('player_run_processed', this.runCanvas);
+
+                // Sprite to display the processed running animation
+                this.runSprite = this.add.sprite(0, 0, 'player_run_processed');
+                this.runSprite.setOrigin(0.5, 1);
+                this.runSprite.setAlpha(0);
+                this.runSprite.setDepth(100);
+
+                // Scale to match player visual height
+                const playerVisH = this.player.displayHeight;
+                const scale = playerVisH / this.runCropH;
+                this.runSprite.setScale(scale);
+
+                console.log(`[Running] Canvas configured: crop=${this.runCropW}x${this.runCropH}, scale=${scale.toFixed(3)}`);
+            }
+        });
+
+        // Loop range: keep playback between 0.6s and ~3.0s
+        this.time.addEvent({
+            delay: 30,
+            loop: true,
+            callback: () => {
+                if (!this.runVideoObj || !this.runVideoObj.video) return;
+                const videoEl = this.runVideoObj.video;
+                if (videoEl.currentTime >= 2.9 || videoEl.currentTime < 0.5) {
+                    videoEl.currentTime = 0.6;
+                }
+            }
+        });
+    }
+
+    processRunFrame() {
+        const videoEl = this.runVideoObj.video;
+        if (!videoEl || !this.runCtx) return;
+
+        const ctx = this.runCtx;
+
+        // Draw cropped video frame to canvas
+        ctx.drawImage(videoEl, this.runCropX, 0, this.runCropW, this.runCropH, 0, 0, this.runCropW, this.runCropH);
+
+        // Pixel-level chroma key: remove white background
+        const imageData = ctx.getImageData(0, 0, this.runCropW, this.runCropH);
+        const data = imageData.data;
+
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+
+            if (r > 200 && g > 200 && b > 200) {
+                data[i + 3] = 0;
+            }
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+
+        // Push updated canvas to the Phaser texture
+        this.textures.get('player_run_processed').refresh();
+    }
+
+    syncRunningAnimation() {
+        if (!this.runSprite || !this.player || !this.player.body) return;
+        if (!this.runVideoConfigured) return;
+
+        const isMoving = Math.abs(this.player.body.velocity.x) > 1;
+        const inCutscene = this.playerState === 'WATCHING_CUTSCENE' ||
+                           this.playerState === 'IN_ELEVATOR';
+
+        if (inCutscene && this.isRunAnimActive) {
+            this.isRunAnimActive = false;
+            this.runSprite.setAlpha(0);
+            return;
+        }
+
+        if (isMoving && !inCutscene) {
+            if (!this.isRunAnimActive) {
+                this.isRunAnimActive = true;
+                this.player.setAlpha(0);
+            }
+            // Process current video frame with chroma key
+            this.processRunFrame();
+
+            this.runSprite.setFlipX(this.player.flipX);
+            this.runSprite.setPosition(this.player.x, this.player.y);
+            this.runSprite.setAlpha(1);
+        } else if (this.isRunAnimActive) {
+            this.isRunAnimActive = false;
+            this.runSprite.setAlpha(0);
+            if (!inCutscene) {
+                this.player.setAlpha(1);
+            }
+        }
     }
 
     /**

@@ -103,6 +103,7 @@ export class PreloadScene extends Phaser.Scene {
         // Video Assets
         // Note: Filename contains spaces/parentheses. Ensure server serves this correctly.
         this.load.video('elevator_video', 'cutscenes/elevator_cutscene.mp4');
+        this.load.video('player_running', 'characters/cutscenes/Default_running/download (36).mp4');
 
         // Garden Animation - Sprite sheet with transparency (replaces video for proper alpha support)
         this.load.spritesheet('garden_anim', 'Objects/Cutscenes/Garden/garden_anim.png', {
