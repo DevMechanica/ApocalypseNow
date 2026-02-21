@@ -109,7 +109,9 @@ export class PhaserResourceBars {
         const container = this.scene.add.container(x, y);
         container.setScale(scale);
 
-        // 1. NineSlice Background (Base Layer)
+        const isInfinite = (key === 'caps');
+
+        // 1. Background (Base Layer)
         // Slices: left 85 (Protect Icon), Right 25, Top 10, Bottom 10
         const bg = this.scene.add.nineslice(
             0, 0,
@@ -138,7 +140,7 @@ export class PhaserResourceBars {
         const hStr = Math.round(barAreaHeight);
 
         const trackKey = `res_track_${wStr}x${hStr}`;
-        if (!this.scene.textures.exists(trackKey)) {
+        if (!isInfinite && !this.scene.textures.exists(trackKey)) {
             const g = this.scene.make.graphics({ x: 0, y: 0, add: false });
             g.fillStyle(0x000000, 0.45);
             g.fillRoundedRect(0, 0, barAreaWidth, barAreaHeight, cornerRadius);
@@ -176,15 +178,20 @@ export class PhaserResourceBars {
         }
 
         // 2. Add Track and Fill Images
-        const trackImg = this.scene.add.image(fillStartX, barAreaY, trackKey).setOrigin(0, 0);
-        container.add(trackImg);
+        let trackImg, fillImg;
 
-        const fillImg = this.scene.add.image(fillStartX, barAreaY, fillKey).setOrigin(0, 0);
-        fillImg.setTint(config.color);
-        container.add(fillImg);
+        if (!isInfinite) {
+            trackImg = this.scene.add.image(fillStartX, barAreaY, trackKey).setOrigin(0, 0);
+            container.add(trackImg);
+
+            fillImg = this.scene.add.image(fillStartX, barAreaY, fillKey).setOrigin(0, 0);
+            fillImg.setTint(config.color);
+            container.add(fillImg);
+        }
 
         // 3. Text
-        const textX = 0; // Center text in the container
+        // Center text in the container 
+        const textX = 0;
         const textY = 0;
         const fontSize = Math.floor(height * 0.55); // 55% of height
 
@@ -195,7 +202,7 @@ export class PhaserResourceBars {
             stroke: '#000000',
             strokeThickness: 4
         });
-        text.setOrigin(0.5, 0.5);
+        text.setOrigin(0.5, 0.5); // Centered
 
         container.add(text);
 
@@ -264,6 +271,7 @@ export class PhaserResourceBars {
             // Dimensions for updating
             barAreaWidth: barAreaWidth,
             barAreaHeight: barAreaHeight,
+            isInfinite: isInfinite,
 
             // Caching
             lastPercentage: -1
@@ -283,8 +291,12 @@ export class PhaserResourceBars {
             const max = state.resourceMax[key] || 0;
 
             // Update Text
-            const maxText = max > 0 ? max.toLocaleString() : '∞';
-            el.text.setText(`${current.toLocaleString()}/${maxText}`);
+            if (el.isInfinite) {
+                el.text.setText(`${current.toLocaleString()}`);
+            } else {
+                const maxText = max > 0 ? max.toLocaleString() : '∞';
+                el.text.setText(`${current.toLocaleString()}/${maxText}`);
+            }
 
             // Calc Percentage
             let percentage = 0;
@@ -334,13 +346,15 @@ export class PhaserResourceBars {
             if (Math.abs(percentage - el.lastPercentage) < 0.001) return;
             el.lastPercentage = percentage;
 
-            const fillW = Math.max(0, el.barAreaWidth * percentage);
+            if (!el.isInfinite && el.fillImg) {
+                const fillW = Math.max(0, el.barAreaWidth * percentage);
 
-            if (fillW === 0) {
-                el.fillImg.setVisible(false);
-            } else {
-                el.fillImg.setVisible(true);
-                el.fillImg.setCrop(0, 0, fillW, el.barAreaHeight);
+                if (fillW === 0) {
+                    el.fillImg.setVisible(false);
+                } else {
+                    el.fillImg.setVisible(true);
+                    el.fillImg.setCrop(0, 0, fillW, el.barAreaHeight);
+                }
             }
         });
     }
