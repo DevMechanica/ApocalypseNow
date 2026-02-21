@@ -48,6 +48,18 @@ export class UIScene extends Phaser.Scene {
         this.input.on('pointerup', () => {
             this.registry.set('uiBlocked', false);
         });
+
+        // Listen for resize
+        this.scale.on('resize', this.handleResize, this);
+    }
+
+    handleResize(gameSize) {
+        const width = gameSize.width;
+        const height = gameSize.height;
+
+        if (this.resourceBars) {
+            this.resourceBars.resize(width, height);
+        }
     }
 
     createResourceBars() {
