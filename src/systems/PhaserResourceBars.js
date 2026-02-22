@@ -1,4 +1,5 @@
 import * as Phaser from 'phaser';
+import { formatNumber } from '../utils/formatNumber.js';
 
 export class PhaserResourceBars {
     constructor(scene) {
@@ -292,10 +293,10 @@ export class PhaserResourceBars {
 
             // Update Text
             if (el.isInfinite) {
-                el.text.setText(`${current.toLocaleString()}`);
+                el.text.setText(`${formatNumber(current)}`);
             } else {
-                const maxText = max > 0 ? max.toLocaleString() : '∞';
-                el.text.setText(`${current.toLocaleString()}/${maxText}`);
+                const maxText = max > 0 ? formatNumber(max) : '∞';
+                el.text.setText(`${formatNumber(current)}/${maxText}`);
             }
 
             // Calc Percentage

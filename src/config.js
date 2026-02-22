@@ -64,7 +64,7 @@ export const ECONOMY = {
     // UPGRADE SYSTEM
     // -------------------------------------------------------------------------
     UPGRADE: {
-        maxLevel: 10,                   // Maximum upgrade level for any machine
+        maxLevel: 100,                  // Maximum upgrade level for any machine
         costCurrency: 'caps',           // Primary currency for upgrades
         secondaryCurrency: 'materials', // Secondary currency for upgrades
         costScalingDefault: 1.5,        // Default: NextCost = BaseCost * (Factor ^ Level)
