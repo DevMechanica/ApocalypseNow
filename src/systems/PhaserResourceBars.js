@@ -134,23 +134,32 @@ export class PhaserResourceBars {
 
         const barAreaY = (-height / 2) + paddingTop;
         const barAreaHeight = Math.max(0, height - paddingTop - paddingBottom);
-        const cornerRadius = 10;
 
-        // --- NEW: Generate Textures Once ---
+        // --- Generate tapered fill texture to match icon bar shape ---
+        // The icon bar tapers: taller on the left, slightly narrower on the right.
+        // Top edge slopes down, bottom edge slopes up slightly.
         const wStr = Math.round(barAreaWidth);
         const hStr = Math.round(barAreaHeight);
 
         const fillKey = `res_fill_${wStr}x${hStr}`;
         if (!this.scene.textures.exists(fillKey)) {
             const g = this.scene.make.graphics({ x: 0, y: 0, add: false });
-            const r = cornerRadius;
             const w = barAreaWidth;
             const h = barAreaHeight;
 
-            // 1. Main fill (White so it tints perfectly)
-            // Using slightly lower alpha so the native background's drawn bar details (shadows/highlights) show through
+            // Taper amounts — matched to the icon bar's visible contour
+            const topTaper = h * 0.12;   // top-right drops ~12% of height
+            const botTaper = h * 0.05;   // bottom-right rises ~5% of height
+
+            // Draw tapered bar as a filled polygon (white, tinted later)
             g.fillStyle(0xffffff, 0.65);
-            g.fillRoundedRect(0, 0, w, h, r);
+            g.beginPath();
+            g.moveTo(0, 0);                        // top-left
+            g.lineTo(w, topTaper);                  // top-right (lower)
+            g.lineTo(w, h - botTaper);              // bottom-right (higher)
+            g.lineTo(0, h);                         // bottom-left
+            g.closePath();
+            g.fillPath();
 
             g.generateTexture(fillKey, w, h);
             g.destroy();
