@@ -140,17 +140,6 @@ export class PhaserResourceBars {
         const wStr = Math.round(barAreaWidth);
         const hStr = Math.round(barAreaHeight);
 
-        const trackKey = `res_track_${wStr}x${hStr}`;
-        if (!isInfinite && !this.scene.textures.exists(trackKey)) {
-            const g = this.scene.make.graphics({ x: 0, y: 0, add: false });
-            g.fillStyle(0x000000, 0.45);
-            g.fillRoundedRect(0, 0, barAreaWidth, barAreaHeight, cornerRadius);
-            g.lineStyle(1, 0x000000, 0.3);
-            g.strokeRoundedRect(0, 0, barAreaWidth, barAreaHeight, cornerRadius);
-            g.generateTexture(trackKey, barAreaWidth, barAreaHeight);
-            g.destroy();
-        }
-
         const fillKey = `res_fill_${wStr}x${hStr}`;
         if (!this.scene.textures.exists(fillKey)) {
             const g = this.scene.make.graphics({ x: 0, y: 0, add: false });
@@ -159,34 +148,22 @@ export class PhaserResourceBars {
             const h = barAreaHeight;
 
             // 1. Main fill (White so it tints perfectly)
-            g.fillStyle(0xffffff, 0.85);
-            g.fillRoundedRect(0, 1, w, h - 2, r);
-
-            // 2. Highlight strip at top
-            if (w > 4 && h > 6) {
-                g.fillStyle(0xffffff, 0.5);
-                g.fillRoundedRect(2, 2, w - 4, h * 0.22, r / 2);
-            }
-
-            // 3. Subtle edge highlight on right side
-            if (w > 3) {
-                g.fillStyle(0xffffff, 0.3);
-                g.fillRect(w - 2, 2, 2, h - 4);
-            }
+            // Using slightly lower alpha so the native background's drawn bar details (shadows/highlights) show through
+            g.fillStyle(0xffffff, 0.65);
+            g.fillRoundedRect(0, 0, w, h, r);
 
             g.generateTexture(fillKey, w, h);
             g.destroy();
         }
 
-        // 2. Add Track and Fill Images
-        let trackImg, fillImg;
+        let fillImg = null;
 
         if (!isInfinite) {
-            trackImg = this.scene.add.image(fillStartX, barAreaY, trackKey).setOrigin(0, 0);
-            container.add(trackImg);
-
             fillImg = this.scene.add.image(fillStartX, barAreaY, fillKey).setOrigin(0, 0);
             fillImg.setTint(config.color);
+            // We set blend mode to ADD so the color brightens the native dark grey track underneath it,
+            // making it look like the native track is filling up.
+            fillImg.setBlendMode(Phaser.BlendModes.ADD);
             container.add(fillImg);
         }
 
@@ -263,7 +240,6 @@ export class PhaserResourceBars {
         // Store references
         this.barElements[key] = {
             container: container,
-            trackImg: trackImg,
             fillImg: fillImg,
             text: text,
             dayText: dayText, // Undefined for non-caps
